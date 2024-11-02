@@ -2,6 +2,11 @@ import time
 import math
 from simple_pid import PID
 import numpy as np
+from PioLED import PioLED
+import adafruit_ads1x15.ads1015 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
+import busio
+from board import SCL, SDA
 
 # import qwiic_dual_encoder_reader  # Motor encoder reader
 import qwiic_scmd  # Motor control
@@ -12,6 +17,15 @@ myMotor = qwiic_scmd.QwiicScmd()
 myEncoders = qwiic_dual_encoder_reader.QwiicDualEncoderReader()
 myIMU = qwiic_icm20948.QwiicIcm20948(address=0x68)
 
+i2c = busio.I2C(SCL, SDA)
+myADC = ADS.ADS1015(i2c)
+
+# Create single-ended input on channels 0 - 3
+chan0 = AnalogIn(myADC, ADS.P0)
+chan1 = AnalogIn(myADC, ADS.P1)
+chan2 = AnalogIn(myADC, ADS.P2)
+chan3 = AnalogIn(myADC, ADS.P3)
+
 # PID balance controller
 Kp = 10
 Ki = 0.1
@@ -20,7 +34,7 @@ pid = PID(Kp, Ki, Kd, setpoint=0)
 pid.output_limits = (-200, 200)
 
 # PID position controller
-Kp2 = 0.1
+Kp2 = 0
 Ki2 = 0
 Kd2 = 0
 pid_pos = PID(Kp2, Ki2, Kd2, setpoint=0)
@@ -34,6 +48,8 @@ R_MTR = 0
 L_MTR = 1
 FWD = 0
 REV = 1
+
+oled = PioLED()
 
 
 def initialize_system():
@@ -72,6 +88,13 @@ def initialize_system():
         return
 
     print("IMU initialized.")
+
+    oled.clear()
+    oled.display_text(f"Kp = {Kp}", 0, 0)
+    oled.display_text(f"Ki = {Ki}", 0, 8)
+    oled.display_text(f"Kd = {Kd}", 0, 16)
+    # oled.draw_rectangle(10, 10, 30, 20, fill=True)
+    # oled.draw_line(0, 0, 127, 31)
 
 
 def read_IMU(angle):
@@ -150,26 +173,38 @@ try:
     speed = 0
     oldTickTime = 0
     # calibrate_gyro()
+    interval = time.time()  # sec
     while True:
         pos_adj = move_to_position(0)
         prevAngle = read_IMU(prevAngle)
         control = pid(prevAngle)
-        speed = control - pos_adj
-        # speed = control
+        # speed = control - pos_adj
+        speed = control
 
-        if speed > 0:
-            speed += 20
-        elif speed < 0:
-            speed -= 20
+        # if speed > 0:
+        #     speed += 20
+        # elif speed < 0:
+        #     speed -= 20
 
-        print(f"x_vel: {x_vel:.2f}  angle: {prevAngle:.0f}  pos_adj: {pos_adj:.0f}  control: {control:.0f}  speed: {speed:.0f}")
+        # print(f"x_vel: {x_vel:.2f} angle: {prevAngle:.0f} pos_adj: {pos_adj:.0f} control: {control:.0f} speed: {speed:.0f}")
 
         left_speed = speed
         right_speed = speed
 
         set_motor_speed(left_speed, right_speed)
+        if interval < time.time() - 0.2:  # sec)
+            Kp = chan0.voltage * 10
+            Ki = chan1.voltage
+            Kd = chan2.voltage
+            # print(f"{chan0.voltage:>6.3f}\t{chan1.voltage:>6.3f}\t{chan2.voltage:>6.3f}\t{chan3.voltage:>6.3f}\t")
+            # print(f"{Kp:>6.3f}\t{Ki:>6.3f}\t{Kd:>6.3f}")
+            # oled.clear()
+            # oled.display_text(f"Kp = {Kp}", 0, 0)
+            # oled.display_text(f"Ki = {Ki}", 0, 10)
+            # oled.display_text(f"Kd = {Kd}", 0, 20)
+            interval = time.time()
 
-        time.sleep(0.02)  # 10ms loop time
+        # time.sleep(0.02)  # loop time
 
 except KeyboardInterrupt:
     myMotor.disable()
