@@ -27,24 +27,22 @@ chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
 # PID balance controller
-kP = 10
-kI = 0.1
-kD = 0
-pid = PID(kP, kI, kD, setpoint=0)
+# kP = 4
+# kI = 0
+# kD = 0
+# pid = PID(kP, kI, kD, setpoint=0)
+pid = PID(4.0, 0, 0, setpoint=0)
 pid.output_limits = (-200, 200)
 pid.sample_time = 0.01
 
 # PID position controller
-kP2 = 0
-kI2 = 0
-kD2 = 0
-pid_pos = PID(kP2, kI2, kD2, setpoint=0)
+pid_pos = PID(0, 0, 0, setpoint=0)
 pid_pos.output_limits = (-200, 200)
 pid_pos.sample_time = 0.01
 
 old_pos = 0
 x_vel = 0
-ticksPerMm = 0.833  # ticks per millimeter
+ticksPerMm = 937.0/300.0  # ticks per millimeter
 oldTickTime = 0  # uSec
 
 angle_corr = 0.0
@@ -95,9 +93,9 @@ def initialize_system():
     print("IMU initialized.")
 
     oled.clear()
-    oled.display_text(f"kP = {kP}", 0, 0)
-    oled.display_text(f"kI = {kI}", 0, 8)
-    oled.display_text(f"kD = {kD}", 0, 16)
+    oled.display_text(f"kP = {pid.Kp:.1f} kP2 = {pid_pos.Kp:.1f}", 0, 0)
+    oled.display_text(f"kI = {pid.Ki:.1f} kI2 = {pid_pos.Ki:.1f}", 0, 8)
+    oled.display_text(f"kD = {pid.Kd:.1f} kD2 = {pid_pos.Kd:.1f}", 0, 16)
     # oled.draw_rectangle(10, 10, 30, 20, fill=True)
     # oled.draw_line(0, 0, 127, 31)
 
@@ -155,24 +153,24 @@ def move_to_position(target_position):
     global oldTickTime, x_vel, old_pos
 
     current_position = ((myEncoders.count1 - myEncoders.count2) / 2) / ticksPerMm  # position in mm
-    # position_error = target_position - current_position
+    position_error = target_position - current_position
 
     tickTime = time.time()  # sec
 
     dTickTime = tickTime - oldTickTime  # sec
-    x_vel = (old_pos - current_position) / dTickTime  # mm per sec
-
     oldTickTime = tickTime  # sec
+
+    x_vel = (old_pos - current_position) / dTickTime  # mm per sec
     old_pos = current_position  # mm
 
-    # return pid_pos(position_error)
-    return pid_pos(x_vel)
+    return pid_pos(position_error)
+    # return pid_pos(x_vel)
 
 
 try:
     initialize_system()
     pid.proportional_on_measurement = True
-    idx = 0
+    pid_pos.proportional_on_measurement = True
     prevAngle = 0
     speed = 0
     oldTickTime = 0
@@ -186,9 +184,9 @@ try:
         speed = control
 
         # if speed > 0:
-        #     speed += 20
+        #     speed += 10
         # elif speed < 0:
-        #     speed -= 20
+        #     speed -= 10
 
         # print(f"x_vel: {x_vel:>.2f}\tangle: {prevAngle:>.0f}\tpos_adj: {pos_adj:>.0f}\tcontrol: {control:>.0f}\tspeed: {speed:>.0f}")
         left_speed = speed
@@ -197,16 +195,16 @@ try:
         set_motor_speed(left_speed, right_speed)
         new_time = time.time()
         if new_time > old_loop_time + 1.0:  # Display update loop
-            pid.kP = chan0.voltage * 10
-            pid.kI = chan1.voltage * 10
-            pid.kD = chan2.voltage * 10
-            angle_corr = chan3.voltage * 3.0 - 5.0
-            # print(f"x_vel: {x_vel:>.2f}\tangle: {prevAngle:>.2f}\tspeed: {speed:>.0f}\tcorr: {angle_corr:>.2f}")
-            # print(f"{pid.kP:>6.3f}\t{pid.kI:>6.3f}\t{pid.kD:>6.3f}")
+            # pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage * 10)
+            pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage * 10)
+            angle_corr = chan3.voltage * 6.0 - 10.0
+            print(f"angle: {prevAngle:>.1f}\tangle_corr: {angle_corr:>.1f}\told_pos: {old_pos:>.0f}\tcontrol: {control:>.1f}\tpos_adj: {pos_adj:>.1f}")
+            # print(f"{pid.Kp:>6.3f}\t{pid.Ki:>6.3f}\t{pid.Kd:>6.3f}")
+            print(f"{pid_pos.Kp:>6.3f}\t{pid_pos.Ki:>6.3f}\t{pid_pos.Kd:>6.3f}")
             # oled.clear()
-            # oled.display_text(f"kP = {pid.kP}", 0, 0)
-            # oled.display_text(f"kI = {pid.kI}", 0, 10)
-            # oled.display_text(f"kD = {pid.kD}", 0, 20)
+            # oled.display_text(f"kP = {pid.Kp}", 0, 0)
+            # oled.display_text(f"kI = {pid.Ki}", 0, 10)
+            # oled.display_text(f"kD = {pid.Kd}", 0, 20)
             old_loop_time = new_time
 
 except KeyboardInterrupt:
