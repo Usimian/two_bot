@@ -3,8 +3,6 @@ import math
 from simple_pid import PID
 import numpy as np
 from PioLED import PioLED
-import adafruit_ads1x15.ads1015 as ADS
-from adafruit_ads1x15.analog_in import AnalogIn
 import busio
 from board import SCL, SDA
 
@@ -12,6 +10,8 @@ from board import SCL, SDA
 import qwiic_scmd  # Motor control
 import qwiic_icm20948  # IMU
 import qwiic_dual_encoder_reader  # Motor encoder reader
+import adafruit_ads1x15.ads1015 as ADS  # 4 chan ADC
+from adafruit_ads1x15.analog_in import AnalogIn
 
 myMotor = qwiic_scmd.QwiicScmd()
 myEncoders = qwiic_dual_encoder_reader.QwiicDualEncoderReader()
@@ -27,22 +27,27 @@ chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
 # PID balance controller
-Kp = 10
-Ki = 0.1
-Kd = 0
-pid = PID(Kp, Ki, Kd, setpoint=0)
+kP = 10
+kI = 0.1
+kD = 0
+pid = PID(kP, kI, kD, setpoint=0)
 pid.output_limits = (-200, 200)
+pid.sample_time = 0.01
 
 # PID position controller
-Kp2 = 0
-Ki2 = 0
-Kd2 = 0
-pid_pos = PID(Kp2, Ki2, Kd2, setpoint=0)
+kP2 = 0
+kI2 = 0
+kD2 = 0
+pid_pos = PID(kP2, kI2, kD2, setpoint=0)
 pid_pos.output_limits = (-200, 200)
+pid_pos.sample_time = 0.01
+
 old_pos = 0
 x_vel = 0
-ticksPerMm = 0.833
+ticksPerMm = 0.833  # ticks per millimeter
 oldTickTime = 0  # uSec
+
+angle_corr = 0.0
 
 R_MTR = 0
 L_MTR = 1
@@ -90,9 +95,9 @@ def initialize_system():
     print("IMU initialized.")
 
     oled.clear()
-    oled.display_text(f"Kp = {Kp}", 0, 0)
-    oled.display_text(f"Ki = {Ki}", 0, 8)
-    oled.display_text(f"Kd = {Kd}", 0, 16)
+    oled.display_text(f"kP = {kP}", 0, 0)
+    oled.display_text(f"kI = {kI}", 0, 8)
+    oled.display_text(f"kD = {kD}", 0, 16)
     # oled.draw_rectangle(10, 10, 30, 20, fill=True)
     # oled.draw_line(0, 0, 127, 31)
 
@@ -103,12 +108,12 @@ def read_IMU(angle):
         myIMU.getAgmt()  # read all axis and temp from sensor, note this also updates all instance variables
 
         # Calculate pitch angle
-        accel_angle = math.atan2(myIMU.ayRaw, myIMU.azRaw) * 180 / math.pi
+        accel_angle = math.atan2(myIMU.ayRaw, myIMU.azRaw) * 180 / math.pi - angle_corr  # Correct for IMU angle when balanced
         gyro_angle = myIMU.gxRaw / 131.0  # Gyro sensitivity is 131 LSB/degrees/sec
 
         # Complementary filter to combine accelerometer and gyroscope data
         angle = 0.99 * (angle + gyro_angle * 0.02) + 0.01 * accel_angle
-        # print(f"accel_angle: {accel_angle:.0f}  gyro_angle: {gyro_angle:.0f}")
+        # print(f"accel_angle: {accel_angle:>.1f}\tgyro_angle: {gyro_angle:>.1f}\tangle: {angle:>.1f}\tcorr: {angle_corr:>.1f}")
         return angle
 
 
@@ -149,17 +154,16 @@ def set_motor_speed(left_speed, right_speed):
 def move_to_position(target_position):
     global oldTickTime, x_vel, old_pos
 
-    current_position = (myEncoders.count1 - myEncoders.count2) / 2
+    current_position = ((myEncoders.count1 - myEncoders.count2) / 2) / ticksPerMm  # position in mm
     # position_error = target_position - current_position
 
     tickTime = time.time()  # sec
 
-    dTickTime = tickTime - oldTickTime  # usec
-    x_vel = (old_pos - current_position) / dTickTime  # ticks per uSec
-    x_vel = x_vel / ticksPerMm  # mm/sec
+    dTickTime = tickTime - oldTickTime  # sec
+    x_vel = (old_pos - current_position) / dTickTime  # mm per sec
 
-    oldTickTime = tickTime
-    old_pos = current_position
+    oldTickTime = tickTime  # sec
+    old_pos = current_position  # mm
 
     # return pid_pos(position_error)
     return pid_pos(x_vel)
@@ -173,7 +177,7 @@ try:
     speed = 0
     oldTickTime = 0
     # calibrate_gyro()
-    interval = time.time()  # sec
+    old_loop_time = time.time()  # sec
     while True:
         pos_adj = move_to_position(0)
         prevAngle = read_IMU(prevAngle)
@@ -186,25 +190,24 @@ try:
         # elif speed < 0:
         #     speed -= 20
 
-        # print(f"x_vel: {x_vel:.2f} angle: {prevAngle:.0f} pos_adj: {pos_adj:.0f} control: {control:.0f} speed: {speed:.0f}")
-
+        # print(f"x_vel: {x_vel:>.2f}\tangle: {prevAngle:>.0f}\tpos_adj: {pos_adj:>.0f}\tcontrol: {control:>.0f}\tspeed: {speed:>.0f}")
         left_speed = speed
         right_speed = speed
 
         set_motor_speed(left_speed, right_speed)
-        if interval < time.time() - 0.2:  # sec)
-            Kp = chan0.voltage * 10
-            Ki = chan1.voltage
-            Kd = chan2.voltage
-            # print(f"{chan0.voltage:>6.3f}\t{chan1.voltage:>6.3f}\t{chan2.voltage:>6.3f}\t{chan3.voltage:>6.3f}\t")
-            # print(f"{Kp:>6.3f}\t{Ki:>6.3f}\t{Kd:>6.3f}")
+        new_time = time.time()
+        if new_time > old_loop_time + 1.0:  # Display update loop
+            pid.kP = chan0.voltage * 10
+            pid.kI = chan1.voltage * 10
+            pid.kD = chan2.voltage * 10
+            angle_corr = chan3.voltage * 3.0 - 5.0
+            # print(f"x_vel: {x_vel:>.2f}\tangle: {prevAngle:>.2f}\tspeed: {speed:>.0f}\tcorr: {angle_corr:>.2f}")
+            # print(f"{pid.kP:>6.3f}\t{pid.kI:>6.3f}\t{pid.kD:>6.3f}")
             # oled.clear()
-            # oled.display_text(f"Kp = {Kp}", 0, 0)
-            # oled.display_text(f"Ki = {Ki}", 0, 10)
-            # oled.display_text(f"Kd = {Kd}", 0, 20)
-            interval = time.time()
-
-        # time.sleep(0.02)  # loop time
+            # oled.display_text(f"kP = {pid.kP}", 0, 0)
+            # oled.display_text(f"kI = {pid.kI}", 0, 10)
+            # oled.display_text(f"kD = {pid.kD}", 0, 20)
+            old_loop_time = new_time
 
 except KeyboardInterrupt:
     myMotor.disable()
