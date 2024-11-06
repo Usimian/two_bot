@@ -27,22 +27,18 @@ chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
 # PID balance controller
-# kP = 4
-# kI = 0
-# kD = 0
-# pid = PID(kP, kI, kD, setpoint=0)
-pid = PID(4.0, 0, 0, setpoint=0)
-pid.output_limits = (-200, 200)
+pid = PID(8, 17.7, 0, setpoint=0)
+pid.output_limits = (-100, 100)
 pid.sample_time = 0.01
 
 # PID position controller
 pid_pos = PID(0, 0, 0, setpoint=0)
-pid_pos.output_limits = (-200, 200)
+pid_pos.output_limits = (-10, 10)
 pid_pos.sample_time = 0.01
 
 old_pos = 0
 x_vel = 0
-ticksPerMm = 937.0/300.0  # ticks per millimeter
+ticksPerMm = 937.0 / 300.0  # ticks per millimeter
 oldTickTime = 0  # uSec
 
 angle_corr = 0.0
@@ -93,9 +89,10 @@ def initialize_system():
     print("IMU initialized.")
 
     oled.clear()
-    oled.display_text(f"kP = {pid.Kp:.1f} kP2 = {pid_pos.Kp:.1f}", 0, 0)
-    oled.display_text(f"kI = {pid.Ki:.1f} kI2 = {pid_pos.Ki:.1f}", 0, 8)
-    oled.display_text(f"kD = {pid.Kd:.1f} kD2 = {pid_pos.Kd:.1f}", 0, 16)
+    oled.display_text(f"kP = {pid.Kp:.1f} kP2 = {pid_pos.Kp:.1f}", 0, -1)
+    oled.display_text(f"kI = {pid.Ki:.1f} kI2 = {pid_pos.Ki:.1f}", 0, 7)
+    oled.display_text(f"kD = {pid.Kd:.1f} kD2 = {pid_pos.Kd:.1f}", 0, 15)
+    oled.display_text(f"{chan0.voltage:.1f} {chan1.voltage:.1f} {chan2.voltage:.1f} {(chan3.voltage * 6.0 - 10.0):.1f} ", 0, 23)
     # oled.draw_rectangle(10, 10, 30, 20, fill=True)
     # oled.draw_line(0, 0, 127, 31)
 
@@ -106,11 +103,11 @@ def read_IMU(angle):
         myIMU.getAgmt()  # read all axis and temp from sensor, note this also updates all instance variables
 
         # Calculate pitch angle
-        accel_angle = math.atan2(myIMU.ayRaw, myIMU.azRaw) * 180 / math.pi - angle_corr  # Correct for IMU angle when balanced
+        accel_angle = math.atan2(myIMU.ayRaw, myIMU.azRaw) * 180 / math.pi - angle_corr  # Degrees, Correct for IMU angle when balanced
         gyro_angle = myIMU.gxRaw / 131.0  # Gyro sensitivity is 131 LSB/degrees/sec
 
         # Complementary filter to combine accelerometer and gyroscope data
-        angle = 0.99 * (angle + gyro_angle * 0.02) + 0.01 * accel_angle
+        angle = 0.99 * (angle + gyro_angle * 0.02) + 0.01 * accel_angle  # Degrees
         # print(f"accel_angle: {accel_angle:>.1f}\tgyro_angle: {gyro_angle:>.1f}\tangle: {angle:>.1f}\tcorr: {angle_corr:>.1f}")
         return angle
 
@@ -152,17 +149,21 @@ def set_motor_speed(left_speed, right_speed):
 def move_to_position(target_position):
     global oldTickTime, x_vel, old_pos
 
-    current_position = ((myEncoders.count1 - myEncoders.count2) / 2) / ticksPerMm  # position in mm
+    current_position = ((myEncoders.count1 - myEncoders.count2) / 2.0) / ticksPerMm  # position in mm
     position_error = target_position - current_position
 
     tickTime = time.time()  # sec
-
     dTickTime = tickTime - oldTickTime  # sec
     oldTickTime = tickTime  # sec
 
     x_vel = (old_pos - current_position) / dTickTime  # mm per sec
     old_pos = current_position  # mm
+    print(f"{old_pos}\t{x_vel}")  # mm per sec
 
+    # if position_error > 0:
+    #     return min(position_error/10, 10)
+    # else:
+    #     return max(position_error/10, -10)
     return pid_pos(position_error)
     # return pid_pos(x_vel)
 
@@ -177,34 +178,29 @@ try:
     # calibrate_gyro()
     old_loop_time = time.time()  # sec
     while True:
-        pos_adj = move_to_position(0)
+        pos_err = move_to_position(0)
         prevAngle = read_IMU(prevAngle)
+        # control = pid(prevAngle + pos_err)
         control = pid(prevAngle)
-        # speed = control - pos_adj
         speed = control
 
-        # if speed > 0:
-        #     speed += 10
-        # elif speed < 0:
-        #     speed -= 10
-
-        # print(f"x_vel: {x_vel:>.2f}\tangle: {prevAngle:>.0f}\tpos_adj: {pos_adj:>.0f}\tcontrol: {control:>.0f}\tspeed: {speed:>.0f}")
         left_speed = speed
         right_speed = speed
 
         set_motor_speed(left_speed, right_speed)
         new_time = time.time()
         if new_time > old_loop_time + 1.0:  # Display update loop
-            # pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage * 10)
-            pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage * 10)
+            pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)
+            # pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage * 10)
             angle_corr = chan3.voltage * 6.0 - 10.0
-            print(f"angle: {prevAngle:>.1f}\tangle_corr: {angle_corr:>.1f}\told_pos: {old_pos:>.0f}\tcontrol: {control:>.1f}\tpos_adj: {pos_adj:>.1f}")
+            # print(f"angle: {prevAngle:>3.2f}\tx_vel: {x_vel:>3.2f}\tcorr_angle: {prevAngle+pos_err:>3.2f}\tspeed: {speed:>.0f}")
+            # print(f"{pid_pos.Kp:>6.3f}\t{pid_pos.Ki:>6.3f}\t{pid_pos.Kd:>6.3f}")
             # print(f"{pid.Kp:>6.3f}\t{pid.Ki:>6.3f}\t{pid.Kd:>6.3f}")
-            print(f"{pid_pos.Kp:>6.3f}\t{pid_pos.Ki:>6.3f}\t{pid_pos.Kd:>6.3f}")
+            # print(f"enc 1:{myEncoders.count1:>4.0f}\tenc 2:{myEncoders.count2:>4.0f}")
             # oled.clear()
-            # oled.display_text(f"kP = {pid.Kp}", 0, 0)
-            # oled.display_text(f"kI = {pid.Ki}", 0, 10)
-            # oled.display_text(f"kD = {pid.Kd}", 0, 20)
+            # oled.display_text(f"kP = {pid.Kp} kP = {pid_pos.Kp}", 0, 0)
+            # oled.display_text(f"kI = {pid.Ki} kI = {pid_pos.Ki}", 0, 10)
+            # oled.display_text(f"kD = {pid.Kd} kD = {pid_pos.Kd}", 0, 20)
             old_loop_time = new_time
 
 except KeyboardInterrupt:
