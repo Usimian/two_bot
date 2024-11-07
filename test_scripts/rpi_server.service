@@ -1,0 +1,11 @@
+[Unit]
+Description=Raspberry Pi Socket Server
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/mw/two_bot/test_scripts/ssh_server.py
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target

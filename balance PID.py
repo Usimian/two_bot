@@ -27,21 +27,22 @@ chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
 # PID balance controller
-pid = PID(8, 17.7, 0, setpoint=0)
-pid.output_limits = (-100, 100)
+pid = PID(6, 40, 0, setpoint=0)
+pid.output_limits = (-200, 200)
 pid.sample_time = 0.01
 
 # PID position controller
 pid_pos = PID(0, 0, 0, setpoint=0)
-pid_pos.output_limits = (-20, 20)
+pid_pos.output_limits = (-1, 1)
 pid_pos.sample_time = 0.02
+
 
 old_pos = 0
 x_vel = 0
 ticksPerMm = 937.0 / 300.0  # ticks per millimeter
 oldTickTime = 0  # uSec
 
-angle_corr = 0.0
+angle_corr = 3.0
 
 R_MTR = 0
 L_MTR = 1
@@ -89,11 +90,14 @@ def initialize_system():
     print("IMU initialized.")
 
     oled.clear()
-    oled.display_text(f"kP = {pid.Kp:.1f} kP2 = {pid_pos.Kp:.1f}", 0, -1)
-    oled.display_text(f"kI = {pid.Ki:.1f} kI2 = {pid_pos.Ki:.1f}", 0, 7)
-    oled.display_text(f"kD = {pid.Kd:.1f} kD2 = {pid_pos.Kd:.1f}", 0, 15)
-    oled.display_text(f"{chan0.voltage*10:.1f} {chan1.voltage*10:.1f} {chan2.voltage*10:.1f} {(chan3.voltage * 6.0 - 10.0):.1f} ", 0, 23)
-    # oled.draw_rectangle(10, 10, 30, 20, fill=True)
+    oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, -1)
+    oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 7)
+
+    v_batt = chan3.voltage*152.6/13.9
+    oled.display_text(f"{chan0.voltage*10:.1f}  {chan1.voltage*10:.1f}  {chan2.voltage*10:.1f}", 0, 15)
+    oled.draw_rectangle(0, 25, 90, 6, fill=False)
+    oled.draw_rectangle(0, 25, v_batt*90/17.2, 6, fill=True)
+    oled.display_text(f"{v_batt:.2f} ", 92, 23)
     # oled.draw_line(0, 0, 127, 31)
 
 
@@ -174,9 +178,9 @@ try:
     while True:
         pos_err = move_to_position(0)
         prevAngle = read_IMU(prevAngle)
-        control = pid(prevAngle + pos_err)
-        # control = pid(prevAngle)
+        control = pid(prevAngle+pos_err)
         speed = control
+        # speed = control + pos_err
 
         left_speed = speed
         right_speed = speed
@@ -184,10 +188,9 @@ try:
         set_motor_speed(left_speed, right_speed)
         new_time = time.time()
         if new_time > old_loop_time + 1.0:  # Display update loop
-            # pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)
-            pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage * 10)
-            angle_corr = chan3.voltage * 6.0 - 10.0
-            print(f"angle: {prevAngle:>3.2f}\told_pos: {old_pos:>3.2f}\tpos_err: {pos_err:>3.2f}\tcorr_angle: {prevAngle+pos_err:>3.2f}\tspeed: {speed:>.0f}")
+            # pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, 0)     # Balance PID tuning
+            pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)   # Position PID tuning
+            print(f"angle: {prevAngle:>3.2f}\told_pos: {old_pos:>3.2f}\tpos_err: {pos_err:>3.2f}\tcontrol: {control:>.0f}\tspeed: {speed:>.0f}")
             # print(f"{pid_pos.Kp:>6.3f}\t{pid_pos.Ki:>6.3f}\t{pid_pos.Kd:>6.3f}")
             # print(f"{pid.Kp:>6.3f}\t{pid.Ki:>6.3f}\t{pid.Kd:>6.3f}")
             old_loop_time = new_time
