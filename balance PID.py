@@ -33,28 +33,27 @@ chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
 # PID balance controller
-pid = PID(6, 40, 0, setpoint=0)
+Kp = 4.0
+Ki = 21.5
+Kd = 0.1
+pid = PID(Kp, Ki, Kd, setpoint=0)
 pid.output_limits = (-200, 200)
-pid.sample_time = 0.01
+pid.sample_time = 0.005
 
 # PID position controller
-pid_pos = PID(1, 0, 0, setpoint=0)
-pid_pos.output_limits = (-1, 1)
-pid_pos.sample_time = 0.02
-
-Kp = 0
-Ki = 0
-Kd = 0
-Kp2 = 0
+Kp2 = 0.5
 Ki2 = 0
-Kd2 = 0
+Kd2 = 0.3
+pid_pos = PID(Kp2, Ki2, Kd2, setpoint=0)
+pid_pos.output_limits = (-10, 10)
+pid_pos.sample_time = 0.01
 
 old_pos = 0
 x_vel = 0
 ticksPerMm = 937.0 / 300.0  # ticks per millimeter
 oldTickTime = 0  # uSec
 
-angle_corr = 3.0
+angle_corr = 2.0
 
 R_MTR = 0
 L_MTR = 1
@@ -209,31 +208,32 @@ try:
         set_motor_speed(left_speed, right_speed)
         new_time = time.time()
         if new_time > old_loop_time + 1.0:  # Display update loop
-            # pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Balance PID tuning
-            pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Position PID tuning
-            # if Kp != pid.Kp or Ki != pid.Ki or Kd != pid.Kd or server.slider_update is True:
-            if Kp2 != pid_pos.Kp or Ki2 != pid_pos.Ki or Kd2 != pid_pos.Kd or server.slider_update is True:
-                Kp = pid.Kp
-                Ki = pid.Ki
-                Kd = pid.Kd
-                Kp2 = pid_pos.Kp
-                Ki2 = pid_pos.Ki
-                Kd2 = pid_pos.Kd
+            pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Balance PID tuning
+            # pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Position PID tuning
+            # if Kp2 != pid_pos.Kp or Ki2 != pid_pos.Ki or Kd2 != pid_pos.Kd or server.slider_update is True:
+            if Kp != pid.Kp or Ki != pid.Ki or Kd != pid.Kd or server.slider_update is True:
+                # print(f"{server.Kp:>6.3f}\t{server.Ki:>6.3f}\t{server.Kd:>6.3f}")
+                print(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
+                # print(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
+                #     Kp = pid.Kp
+                #     Ki = pid.Ki
+                #     Kd = pid.Kd
+                #     Kp2 = pid_pos.Kp
+                #     Ki2 = pid_pos.Ki
+                #     Kd2 = pid_pos.Kd
 
-                oled.clear()
-                oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, -1)
-                oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 7)
+                #     oled.clear()
+                #     oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, -1)
+                #     oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 7)
 
-                v_batt = chan3.voltage * 152.6 / 13.9
-                oled.display_text(f"POS -> {server.slider_val}", 0, 15)
-                oled.draw_rectangle(0, 25, 90, 6, fill=False)
-                oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
-                oled.display_text(f"{v_batt:.2f} ", 92, 23)
+                #     v_batt = chan3.voltage * 152.6 / 13.9
+                #     oled.display_text(f"{old_pos:.2f} -> {server.slider_val:.2f}", 0, 15)
+                #     oled.draw_rectangle(0, 25, 90, 6, fill=False)
+                #     oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
+                #     oled.display_text(f"{v_batt:.2f} ", 92, 23)
                 server.slider_update = False
 
-            # print(
-            #     f"angle: {prevAngle:>5.2f}\tpos_setpt: {server.slider_val:>5}\told_pos: {old_pos:>3.2f}\tpos_err: {pos_err:>3.2f}\tcontrol: {control:>.0f}"
-            # )
+            # print(f"angle: {prevAngle:>5.2f}\tpos_setpt: {server.slider_val:>5}\told_pos: {old_pos:>3.2f}\tpos_err: {pos_err:>3.2f}")
             # print(f"{server.Kp:>6.3f}\t{server.Ki:>6.3f}\t{server.Kd:>6.3f}")
             # print(f"{server.Kp2:>6.3f}\t{server.Ki2:>6.3f}\t{server.Kd2:>6.3f}")
             old_loop_time = new_time

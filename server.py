@@ -27,7 +27,6 @@ class PiServer:
         self.server_socket.listen()
         self.running = True
         print(f"Server started on {self.host}:{self.port}")
-
         while self.running:
             try:
                 conn, addr = self.server_socket.accept()
