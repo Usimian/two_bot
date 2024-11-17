@@ -19,12 +19,12 @@ import threading
 
 # import socket
 
+i2c = busio.I2C(SCL, SDA)
+myADC = ADS.ADS1015(i2c)
+
 myMotor = qwiic_scmd.QwiicScmd()
 myEncoders = qwiic_dual_encoder_reader.QwiicDualEncoderReader()
 myIMU = qwiic_icm20948.QwiicIcm20948(address=0x68)
-
-i2c = busio.I2C(SCL, SDA)
-myADC = ADS.ADS1015(i2c)
 
 # Create single-ended input on channels 0 - 3
 chan0 = AnalogIn(myADC, ADS.P0)
@@ -33,25 +33,26 @@ chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
 # PID balance controller
-Kp = 4.0
-Ki = 21.5
+Kp = 6.0
+Ki = 33.0
 Kd = 0.1
 pid = PID(Kp, Ki, Kd, setpoint=0)
 pid.output_limits = (-200, 200)
-pid.sample_time = 0.005
+pid.sample_time = 0.002
 
 # PID position controller
-Kp2 = 0.5
+Kp2 = 0.44
 Ki2 = 0
 Kd2 = 0.3
 pid_pos = PID(Kp2, Ki2, Kd2, setpoint=0)
-pid_pos.output_limits = (-10, 10)
-pid_pos.sample_time = 0.01
+pid_pos.output_limits = (-7, 7)
+pid_pos.sample_time = 0.02
 
 old_pos = 0
 x_vel = 0
 ticksPerMm = 937.0 / 300.0  # ticks per millimeter
-oldTickTime = 0  # uSec
+oldTickTime = 0.0  # Sec
+dTickTime = 0.0   # Sec
 
 angle_corr = 2.0
 
@@ -108,11 +109,13 @@ def initialize_system():
     oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 7)
 
     v_batt = chan3.voltage * 152.6 / 13.9
-    oled.display_text(f"{chan0.voltage*10:.1f}  {chan1.voltage*10:.1f}  {chan2.voltage*10:.1f}", 0, 15)
+    oled.display_text(f"{chan0.voltage*10:.2f}  {chan1.voltage*10:.2f}  {chan2.voltage*10:.2f}", 0, 15)
     oled.draw_rectangle(0, 25, 90, 6, fill=False)
     oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
     oled.display_text(f"{v_batt:.2f} ", 92, 23)
     # oled.draw_line(0, 0, 127, 31)
+    print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")
+    print(f"Kp2: {pid_pos.Kp:>5.2f}\tKi2: {pid_pos.Ki:>5.2f}\tKd2: {pid_pos.Kd:>5.2f}")
 
 
 def read_IMU(angle):
@@ -165,17 +168,18 @@ def set_motor_speed(left_speed, right_speed):
 
 
 def move_to_position(target_position):
-    global oldTickTime, x_vel, old_pos
+    global oldTickTime, dTickTime, x_vel, old_pos
 
     current_position = ((myEncoders.count1 - myEncoders.count2) / 2.0) / ticksPerMm  # position in mm
     position_error = (target_position - current_position) / 10.0
 
-    tickTime = time.time()  # sec
-    dTickTime = tickTime - oldTickTime  # sec
-    oldTickTime = tickTime  # sec
+    tickTime = time.time()  # Current time in sec
+    dTickTime = tickTime - oldTickTime  # dt sec
 
-    x_vel = (old_pos - current_position) / dTickTime  # mm per sec
-    old_pos = current_position  # mm
+    if (dTickTime > 0.1):
+        x_vel = (old_pos - current_position) / dTickTime  # mm per sec
+        oldTickTime = tickTime  # sec 
+        old_pos = current_position  # mm
 
     return pid_pos(position_error)
 
@@ -200,7 +204,6 @@ try:
         prevAngle = read_IMU(prevAngle)
         control = pid(prevAngle + pos_err)
         speed = control
-        # speed = control + pos_err
 
         left_speed = speed
         right_speed = speed
@@ -208,32 +211,24 @@ try:
         set_motor_speed(left_speed, right_speed)
         new_time = time.time()
         if new_time > old_loop_time + 1.0:  # Display update loop
-            pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Balance PID tuning
-            # pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Position PID tuning
+            # pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Balance PID tuning
+            pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Position PID tuning
             # if Kp2 != pid_pos.Kp or Ki2 != pid_pos.Ki or Kd2 != pid_pos.Kd or server.slider_update is True:
-            if Kp != pid.Kp or Ki != pid.Ki or Kd != pid.Kd or server.slider_update is True:
-                # print(f"{server.Kp:>6.3f}\t{server.Ki:>6.3f}\t{server.Kd:>6.3f}")
-                print(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
-                # print(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
-                #     Kp = pid.Kp
-                #     Ki = pid.Ki
-                #     Kd = pid.Kd
-                #     Kp2 = pid_pos.Kp
-                #     Ki2 = pid_pos.Ki
-                #     Kd2 = pid_pos.Kd
+            if server.slider_update is True:
+                # if Kp != pid.Kp or Ki != pid.Ki or Kd != pid.Kd or server.slider_update is True:
+                # print(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.2f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
+                print(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.2f}")
+            #     Kp = pid.Kp
+            #     Ki = pid.Ki
+            #     Kd = pid.Kd
+                # Kp2 = pid_pos.Kp
+                # Ki2 = pid_pos.Ki
+                # Kd2 = pid_pos.Kd
 
-                #     oled.clear()
-                #     oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, -1)
-                #     oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 7)
+            # print(f"{old_pos:>5.2f} mm\tprevAngle: {prevAngle:>5.2f} deg\t{pos_err:5.2f} mm")
+            # print(f"L: {myEncoders.count1:>5.2f}\tR: {myEncoders.count2:>5.2f} deg\t{pos_err:5.2f} mm")
+            server.slider_update = False
 
-                #     v_batt = chan3.voltage * 152.6 / 13.9
-                #     oled.display_text(f"{old_pos:.2f} -> {server.slider_val:.2f}", 0, 15)
-                #     oled.draw_rectangle(0, 25, 90, 6, fill=False)
-                #     oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
-                #     oled.display_text(f"{v_batt:.2f} ", 92, 23)
-                server.slider_update = False
-
-            # print(f"angle: {prevAngle:>5.2f}\tpos_setpt: {server.slider_val:>5}\told_pos: {old_pos:>3.2f}\tpos_err: {pos_err:>3.2f}")
             # print(f"{server.Kp:>6.3f}\t{server.Ki:>6.3f}\t{server.Kd:>6.3f}")
             # print(f"{server.Kp2:>6.3f}\t{server.Ki2:>6.3f}\t{server.Kd2:>6.3f}")
             old_loop_time = new_time
@@ -241,7 +236,8 @@ try:
 except KeyboardInterrupt:
     myMotor.disable()
     print("Motors OFF")
+    print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")
+    print(f"Kp2: {pid_pos.Kp:>5.2f}\tKi2: {pid_pos.Ki:>5.2f}\tKd2: {pid_pos.Kd:>5.2f}")
 
 server.stop()
-print("Server stopped.")
 server_thread.join()
