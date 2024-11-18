@@ -32,6 +32,10 @@ chan1 = AnalogIn(myADC, ADS.P1)
 chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
+Rp = chan0.voltage * 10
+Ri = chan1.voltage * 10
+Rd = chan2.voltage * 10
+
 # PID balance controller
 Kp = 6.0
 Ki = 33.0
@@ -52,7 +56,7 @@ old_pos = 0
 x_vel = 0
 ticksPerMm = 937.0 / 300.0  # ticks per millimeter
 oldTickTime = 0.0  # Sec
-dTickTime = 0.0   # Sec
+dTickTime = 0.0  # Sec
 
 angle_corr = 2.0
 
@@ -63,11 +67,15 @@ REV = 1
 
 oled = PioLED()
 
+v_batt = 0
+
 SERVER_IP = "192.168.50.50"  # I am the host
 PORT = 5000  # Port to listen on
 
 
 def initialize_system():
+    global v_batt
+
     # Initialize motor drive
     if myMotor.connected is False:
         print("Motor Driver not connected.")
@@ -104,16 +112,18 @@ def initialize_system():
 
     print("IMU initialized.")
 
-    oled.clear()
-    oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, -1)
-    oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 7)
-
     v_batt = chan3.voltage * 152.6 / 13.9
-    oled.display_text(f"{chan0.voltage*10:.2f}  {chan1.voltage*10:.2f}  {chan2.voltage*10:.2f}", 0, 15)
+    # oled display
+    oled.clear()
+    oled.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {v_batt:.2f}", 0, -1)
+    oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7)
+    oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15)
+
     oled.draw_rectangle(0, 25, 90, 6, fill=False)
     oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
     oled.display_text(f"{v_batt:.2f} ", 92, 23)
-    # oled.draw_line(0, 0, 127, 31)
+
+    print(f"Rp:  {Rp:>5.2f}\tRi:  {Ri:>5.2f}\tRd:  {Rd:>5.2f}\tBattery: {v_batt:>5.2f}")
     print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")
     print(f"Kp2: {pid_pos.Kp:>5.2f}\tKi2: {pid_pos.Ki:>5.2f}\tKd2: {pid_pos.Kd:>5.2f}")
 
@@ -176,9 +186,9 @@ def move_to_position(target_position):
     tickTime = time.time()  # Current time in sec
     dTickTime = tickTime - oldTickTime  # dt sec
 
-    if (dTickTime > 0.1):
+    if dTickTime > 0.1:
         x_vel = (old_pos - current_position) / dTickTime  # mm per sec
-        oldTickTime = tickTime  # sec 
+        oldTickTime = tickTime  # sec
         old_pos = current_position  # mm
 
     return pid_pos(position_error)
@@ -191,6 +201,16 @@ try:
     server = PiServer(host=SERVER_IP, port=PORT)  # Create server class
     server_thread = threading.Thread(target=server.start)
     server_thread.start()
+    server.Rp = Rp
+    server.Ri = Ri
+    server.Rd = Rd
+    server.v_batt = v_batt
+    server.Kp = pid.Kp
+    server.Ki = pid.Ki
+    server.Kd = pid.Kd
+    server.Kp2 = pid_pos.Kp
+    server.Ki2 = pid_pos.Ki
+    server.Kd2 = pid_pos.Kd
 
     pid.proportional_on_measurement = True
     pid_pos.proportional_on_measurement = True
@@ -211,23 +231,32 @@ try:
         set_motor_speed(left_speed, right_speed)
         new_time = time.time()
         if new_time > old_loop_time + 1.0:  # Display update loop
-            # pid.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Balance PID tuning
-            pid_pos.tunings = (chan0.voltage * 10, chan1.voltage * 10, chan2.voltage)  # Position PID tuning
+            Rp = chan0.voltage * 10
+            Ri = chan1.voltage * 10
+            Rd = chan2.voltage
+            v_batt = chan3.voltage * 152.6 / 13.9
+            server.Rp = Rp
+            server.Ri = Ri
+            server.Rd = Rd
+            server.v_batt = v_batt
+            # pid.tunings = (Rp, Ri, Rd)  # Balance PID tuning
+            # pid_pos.tunings = (Rp, Ri, Rd)  # Position PID tuning
             # if Kp2 != pid_pos.Kp or Ki2 != pid_pos.Ki or Kd2 != pid_pos.Kd or server.slider_update is True:
-            if server.slider_update is True:
-                # if Kp != pid.Kp or Ki != pid.Ki or Kd != pid.Kd or server.slider_update is True:
-                # print(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.2f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
-                print(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.2f}")
-            #     Kp = pid.Kp
-            #     Ki = pid.Ki
-            #     Kd = pid.Kd
-                # Kp2 = pid_pos.Kp
-                # Ki2 = pid_pos.Ki
-                # Kd2 = pid_pos.Kd
+            # if server.slider_update is True:
+            # if Kp != pid.Kp or Ki != pid.Ki or Kd != pid.Kd or server.slider_update is True:
+            # print(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.2f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
+            # print(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.2f}")
+            # Update K values for server
+            server.Kp = pid.Kp
+            server.Ki = pid.Ki
+            server.Kd = pid.Kd
+            server.Kp2 = pid_pos.Kp
+            server.Ki2 = pid_pos.Ki
+            server.Kd2 = pid_pos.Kd
+            # server.slider_update = False
 
             # print(f"{old_pos:>5.2f} mm\tprevAngle: {prevAngle:>5.2f} deg\t{pos_err:5.2f} mm")
             # print(f"L: {myEncoders.count1:>5.2f}\tR: {myEncoders.count2:>5.2f} deg\t{pos_err:5.2f} mm")
-            server.slider_update = False
 
             # print(f"{server.Kp:>6.3f}\t{server.Ki:>6.3f}\t{server.Kd:>6.3f}")
             # print(f"{server.Kp2:>6.3f}\t{server.Ki2:>6.3f}\t{server.Kd2:>6.3f}")

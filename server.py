@@ -1,11 +1,13 @@
 import socket
-# import json
+import json
 import threading
-# import time
+
+SERVER_IP = "192.168.50.50"  # Host
+PORT = 5000  # The same port as the server
 
 
 class PiServer:
-    def __init__(self, host="192.168.50.50", port=5000):
+    def __init__(self, host=SERVER_IP, port=PORT):
         self.host = host
         self.port = port
         self.server_socket = None
@@ -14,12 +16,16 @@ class PiServer:
         # Client variables for transfer
         self.slider_val = 0
         self.slider_update = False
-        # self.Kp = 0
-        # self.Ki = 0
-        # self.Kd = 0
-        # self.Kp2 = 0
-        # self.Ki2 = 0
-        # self.Kd2 = 0
+        self.Rp = 0
+        self.Ri = 0
+        self.Rd = 0
+        self.v_batt = 0
+        self.Kp = 0
+        self.Ki = 0
+        self.Kd = 0
+        self.Kp2 = 0
+        self.Ki2 = 0
+        self.Kd2 = 0
 
     def start(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -46,21 +52,30 @@ class PiServer:
         print(f"Connected by {addr}")
         while self.running:
             try:
-                # data = {"Kp": self.Kp, "Ki": self.Ki, "Kd": self.Kd, "Kp2": self.Kp2, "Ki2": self.Ki2, "Kd2": self.Kd2}
-                # # Send data as JSON
-                # json_data = json.dumps(data)
-                # conn.send(json_data.encode())  # Send K numbers to client
-                # # print(f"handle_client:{json_data}")
+                data = {
+                    "Rp": self.Rp,
+                    "Ri": self.Ri,
+                    "Rd": self.Rd,
+                    "Vb": self.v_batt,
+                    "Kp": self.Kp,
+                    "Ki": self.Ki,
+                    "Kd": self.Kd,
+                    "Kp2": self.Kp2,
+                    "Ki2": self.Ki2,
+                    "Kd2": self.Kd2,
+                }
+                # Send data as JSON
+                json_data = json.dumps(data)
+                conn.send(json_data.encode())  # Send K numbers to client
+                # print(json_data)
                 # time.sleep(1)
 
-                data = conn.recv(1024)  # Get silder position value
-                # print(data)
+                data = conn.recv(1024)  # Get slider position value
                 if not data:
                     break
                 s = data.decode()
                 self.slider_val = int(s)
                 self.slider_update = True
-                # print(s)
 
             except KeyboardInterrupt:
                 break
