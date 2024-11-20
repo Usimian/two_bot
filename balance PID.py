@@ -32,9 +32,9 @@ chan1 = AnalogIn(myADC, ADS.P1)
 chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
-Rp = chan0.voltage * 10
-Ri = chan1.voltage * 10
-Rd = chan2.voltage * 10
+Rp = chan0.voltage * 5
+Ri = chan1.voltage * 5
+Rd = chan2.voltage
 
 # PID balance controller
 Kp = 6.0
@@ -211,6 +211,7 @@ try:
     server.Kp2 = pid_pos.Kp
     server.Ki2 = pid_pos.Ki
     server.Kd2 = pid_pos.Kd
+    server.Pos = old_pos
 
     pid.proportional_on_measurement = True
     pid_pos.proportional_on_measurement = True
@@ -231,8 +232,8 @@ try:
         set_motor_speed(left_speed, right_speed)
         new_time = time.time()
         if new_time > old_loop_time + 1.0:  # Display update loop
-            Rp = chan0.voltage * 10
-            Ri = chan1.voltage * 10
+            Rp = chan0.voltage * 5
+            Ri = chan1.voltage * 5
             Rd = chan2.voltage
             v_batt = chan3.voltage * 152.6 / 13.9
             server.Rp = Rp
@@ -241,9 +242,6 @@ try:
             server.v_batt = v_batt
             # pid.tunings = (Rp, Ri, Rd)  # Balance PID tuning
             # pid_pos.tunings = (Rp, Ri, Rd)  # Position PID tuning
-            # if Kp2 != pid_pos.Kp or Ki2 != pid_pos.Ki or Kd2 != pid_pos.Kd or server.slider_update is True:
-            # if server.slider_update is True:
-            # if Kp != pid.Kp or Ki != pid.Ki or Kd != pid.Kd or server.slider_update is True:
             # print(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.2f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
             # print(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.2f}")
             # Update K values for server
@@ -253,7 +251,7 @@ try:
             server.Kp2 = pid_pos.Kp
             server.Ki2 = pid_pos.Ki
             server.Kd2 = pid_pos.Kd
-            # server.slider_update = False
+            server.Pos = old_pos
 
             # print(f"{old_pos:>5.2f} mm\tprevAngle: {prevAngle:>5.2f} deg\t{pos_err:5.2f} mm")
             # print(f"L: {myEncoders.count1:>5.2f}\tR: {myEncoders.count2:>5.2f} deg\t{pos_err:5.2f} mm")

@@ -15,7 +15,6 @@ class PiServer:
 
         # Client variables for transfer
         self.slider_val = 0
-        self.slider_update = False
         self.Rp = 0
         self.Ri = 0
         self.Rd = 0
@@ -26,6 +25,7 @@ class PiServer:
         self.Kp2 = 0
         self.Ki2 = 0
         self.Kd2 = 0
+        self.Pos = 0
 
     def start(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -63,12 +63,11 @@ class PiServer:
                     "Kp2": self.Kp2,
                     "Ki2": self.Ki2,
                     "Kd2": self.Kd2,
+                    "Pos": self.Pos,
                 }
                 # Send data as JSON
                 json_data = json.dumps(data)
                 conn.send(json_data.encode())  # Send K numbers to client
-                # print(json_data)
-                # time.sleep(1)
 
                 data = conn.recv(1024)  # Get slider position value
                 if not data:
