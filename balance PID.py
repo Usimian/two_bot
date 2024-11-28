@@ -16,21 +16,42 @@ import adafruit_ads1x15.ads1015 as ADS  # 4 chan ADC
 from adafruit_ads1x15.analog_in import AnalogIn
 from server import PiServer
 import threading
-
-# import socket
+from adafruit_motorkit import MotorKit
+from adafruit_motor import stepper
 
 i2c = busio.I2C(SCL, SDA)
+
+# myMotorKit = MotorKit()  # Initializes with default I2C
+# for i in range(1000):
+#     myMotorKit.stepper1.onestep(direction=stepper.FORWARD, style=stepper.DOUBLE)
+#     # time.sleep(0.1)
+#     # myMotorKit.stepper2.onestep()
+
 myADC = ADS.ADS1015(i2c)
 
-myMotor = qwiic_scmd.QwiicScmd()
-myEncoders = qwiic_dual_encoder_reader.QwiicDualEncoderReader()
-myIMU = qwiic_icm20948.QwiicIcm20948(address=0x68)
+# myMotor = qwiic_scmd.QwiicScmd()
+# myEncoders = qwiic_dual_encoder_reader.QwiicDualEncoderReader()
+# myIMU = qwiic_icm20948.QwiicIcm20948(address=0x68)
 
 # Create single-ended input on channels 0 - 3
 chan0 = AnalogIn(myADC, ADS.P0)
 chan1 = AnalogIn(myADC, ADS.P1)
 chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
+
+v_batt = chan3.voltage * 152.6 / 13.9
+# oled display
+oled = PioLED()
+
+oled.clear()
+
+oled.draw_rectangle(0, 25, 90, 6, fill=False)
+oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
+oled.display_text(f"{v_batt:.2f} ", 92, 23)
+
+oled.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {v_batt:.2f}", 0, -1)
+oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7)
+oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15)
 
 Rp = chan0.voltage * 5
 Ri = chan1.voltage * 5
@@ -64,8 +85,6 @@ R_MTR = 0
 L_MTR = 1
 FWD = 0
 REV = 1
-
-oled = PioLED()
 
 v_batt = 0
 
@@ -111,17 +130,6 @@ def initialize_system():
         return
 
     print("IMU initialized.")
-
-    v_batt = chan3.voltage * 152.6 / 13.9
-    # oled display
-    oled.clear()
-    oled.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {v_batt:.2f}", 0, -1)
-    oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7)
-    oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15)
-
-    oled.draw_rectangle(0, 25, 90, 6, fill=False)
-    oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
-    oled.display_text(f"{v_batt:.2f} ", 92, 23)
 
     print(f"Rp:  {Rp:>5.2f}\tRi:  {Ri:>5.2f}\tRd:  {Rd:>5.2f}\tBattery: {v_batt:>5.2f}")
     print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")
@@ -255,7 +263,6 @@ try:
 
             # print(f"{old_pos:>5.2f} mm\tprevAngle: {prevAngle:>5.2f} deg\t{pos_err:5.2f} mm")
             # print(f"L: {myEncoders.count1:>5.2f}\tR: {myEncoders.count2:>5.2f} deg\t{pos_err:5.2f} mm")
-
             # print(f"{server.Kp:>6.3f}\t{server.Ki:>6.3f}\t{server.Kd:>6.3f}")
             # print(f"{server.Kp2:>6.3f}\t{server.Ki2:>6.3f}\t{server.Kd2:>6.3f}")
             old_loop_time = new_time
