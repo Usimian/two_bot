@@ -9,21 +9,29 @@ import busio
 from board import SCL, SDA
 
 # import qwiic_dual_encoder_reader  # Motor encoder reader
-import qwiic_scmd  # Motor control
+# import qwiic_scmd  # Motor control
 import qwiic_icm20948  # IMU
-import qwiic_dual_encoder_reader  # Motor encoder reader
+
+# import qwiic_dual_encoder_reader  # Motor encoder reader
 import adafruit_ads1x15.ads1015 as ADS  # 4 chan ADC
 from adafruit_ads1x15.analog_in import AnalogIn
 from server import PiServer
 import threading
 
-# import socket
+# from adafruit_motorkit import MotorKit
 
 i2c = busio.I2C(SCL, SDA)
+
+# myMotorKit = MotorKit()  # Initializes with default I2C
+# for i in range(1000):
+#     myMotorKit.stepper1.onestep(direction=stepper.FORWARD, style=stepper.DOUBLE)
+#     # time.sleep(0.1)
+#     # myMotorKit.stepper2.onestep()
+
 myADC = ADS.ADS1015(i2c)
 
-myMotor = qwiic_scmd.QwiicScmd()
-myEncoders = qwiic_dual_encoder_reader.QwiicDualEncoderReader()
+# myMotor = qwiic_scmd.QwiicScmd()
+# myEncoders = qwiic_dual_encoder_reader.QwiicDualEncoderReader()
 myIMU = qwiic_icm20948.QwiicIcm20948(address=0x68)
 
 # Create single-ended input on channels 0 - 3
@@ -32,9 +40,23 @@ chan1 = AnalogIn(myADC, ADS.P1)
 chan2 = AnalogIn(myADC, ADS.P2)
 chan3 = AnalogIn(myADC, ADS.P3)
 
+v_batt = chan3.voltage * 152.6 / 13.9
+# oled display
+oled = PioLED()
+
+oled.clear()
+
+oled.draw_rectangle(0, 25, 90, 6, fill=False)
+oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
+oled.display_text(f"{v_batt:.2f} ", 92, 23)
+
 Rp = chan0.voltage * 5
 Ri = chan1.voltage * 5
 Rd = chan2.voltage
+
+oled.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {v_batt:.2f}", 0, -1)
+oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7)
+oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15)
 
 # PID balance controller
 Kp = 6.0
@@ -65,43 +87,40 @@ L_MTR = 1
 FWD = 0
 REV = 1
 
-oled = PioLED()
-
 v_batt = 0
 
 SERVER_IP = "192.168.50.50"  # I am the host
 PORT = 5000  # Port to listen on
 
-
 def initialize_system():
     global v_batt
 
-    # Initialize motor drive
-    if myMotor.connected is False:
-        print("Motor Driver not connected.")
-        return
+    # # Initialize motor drive
+    # if myMotor.connected is False:
+    #     print("Motor Driver not connected.")
+    #     return
 
-    myMotor.begin()
-    print("Motor initialized.")
-    time.sleep(0.250)
+    # myMotor.begin()
+    # print("Motor initialized.")
+    # time.sleep(0.250)
 
-    # Zero Motor Speeds
-    myMotor.set_drive(L_MTR, FWD, 0)
-    myMotor.set_drive(R_MTR, FWD, 0)
+    # # Zero Motor Speeds
+    # myMotor.set_drive(L_MTR, FWD, 0)
+    # myMotor.set_drive(R_MTR, FWD, 0)
 
-    myMotor.enable()
-    print("Motor enabled")
-    time.sleep(0.250)
+    # myMotor.enable()
+    # print("Motor enabled")
+    # time.sleep(0.250)
 
-    # Initialize encoders
-    if myEncoders.connected is False:
-        print("Dual Encoder Reader not connected.")
-        return
+    # # Initialize encoders
+    # if myEncoders.connected is False:
+    #     print("Dual Encoder Reader not connected.")
+    #     return
 
-    myEncoders.begin()
-    myEncoders.count1 = 0
-    myEncoders.count2 = 0
-    print("Encoders enabled")
+    # myEncoders.begin()
+    # myEncoders.count1 = 0
+    # myEncoders.count2 = 0
+    # print("Encoders enabled")
 
     # Initialize IMU
     myIMU.begin()
@@ -112,21 +131,9 @@ def initialize_system():
 
     print("IMU initialized.")
 
-    v_batt = chan3.voltage * 152.6 / 13.9
-    # oled display
-    oled.clear()
-    oled.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {v_batt:.2f}", 0, -1)
-    oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7)
-    oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15)
-
-    oled.draw_rectangle(0, 25, 90, 6, fill=False)
-    oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
-    oled.display_text(f"{v_batt:.2f} ", 92, 23)
-
     print(f"Rp:  {Rp:>5.2f}\tRi:  {Ri:>5.2f}\tRd:  {Rd:>5.2f}\tBattery: {v_batt:>5.2f}")
     print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")
     print(f"Kp2: {pid_pos.Kp:>5.2f}\tKi2: {pid_pos.Ki:>5.2f}\tKd2: {pid_pos.Kd:>5.2f}")
-
 
 def read_IMU(angle):
     # Read accelerometer data
@@ -141,7 +148,6 @@ def read_IMU(angle):
         angle = 0.99 * (angle + gyro_angle * 0.02) + 0.01 * accel_angle  # Degrees
         # print(f"accel_angle: {accel_angle:>.1f}\tgyro_angle: {gyro_angle:>.1f}\tangle: {angle:>.1f}\tcorr: {angle_corr:>.1f}")
         return angle
-
 
 def calibrate_gyro(samples=1000):
     print("Calibrating gyroscope. Keep the sensor still.")
@@ -164,18 +170,16 @@ def calibrate_gyro(samples=1000):
     print(f"Gyro offsets: {gyro_offset}")
     return gyro_offset
 
-
 def set_motor_speed(left_speed, right_speed):
-    if left_speed >= 0:
-        myMotor.set_drive(L_MTR, REV, left_speed)
-    else:
-        myMotor.set_drive(L_MTR, FWD, abs(left_speed))
+    # if left_speed >= 0:
+    #     myMotor.set_drive(L_MTR, REV, left_speed)
+    # else:
+    #     myMotor.set_drive(L_MTR, FWD, abs(left_speed))
 
-    if right_speed >= 0:
-        myMotor.set_drive(R_MTR, FWD, right_speed)
-    else:
-        myMotor.set_drive(R_MTR, REV, abs(right_speed))
-
+    # if right_speed >= 0:
+    #     myMotor.set_drive(R_MTR, FWD, right_speed)
+    # else:
+    #     myMotor.set_drive(R_MTR, REV, abs(right_speed))
 
 def move_to_position(target_position):
     global oldTickTime, dTickTime, x_vel, old_pos
@@ -255,7 +259,6 @@ try:
 
             # print(f"{old_pos:>5.2f} mm\tprevAngle: {prevAngle:>5.2f} deg\t{pos_err:5.2f} mm")
             # print(f"L: {myEncoders.count1:>5.2f}\tR: {myEncoders.count2:>5.2f} deg\t{pos_err:5.2f} mm")
-
             # print(f"{server.Kp:>6.3f}\t{server.Ki:>6.3f}\t{server.Kd:>6.3f}")
             # print(f"{server.Kp2:>6.3f}\t{server.Ki2:>6.3f}\t{server.Kd2:>6.3f}")
             old_loop_time = new_time
