@@ -215,15 +215,15 @@ try:
 
     pid.proportional_on_measurement = True
     pid_pos.proportional_on_measurement = True
-    prevAngle = 0
+    prev_angle = 0
     speed = 0
     oldTickTime = 0
     # calibrate_gyro()
     old_loop_time = time.time()  # sec
     while True:
         pos_err = move_to_position(server.slider_val)
-        prevAngle = read_IMU(prevAngle)
-        control = pid(prevAngle + pos_err)
+        prev_angle = read_IMU(prev_angle)
+        control = pid(prev_angle + pos_err)
         speed = control
 
         left_speed = speed
@@ -253,7 +253,7 @@ try:
             server.Kd2 = pid_pos.Kd
             server.Pos = old_pos
 
-            # print(f"{old_pos:>5.2f} mm\tprevAngle: {prevAngle:>5.2f} deg\t{pos_err:5.2f} mm")
+            # print(f"{old_pos:>5.2f} mm\tprev_angle: {prev_angle:>5.2f} deg\t{pos_err:5.2f} mm")
             # print(f"L: {myEncoders.count1:>5.2f}\tR: {myEncoders.count2:>5.2f} deg\t{pos_err:5.2f} mm")
 
             # print(f"{server.Kp:>6.3f}\t{server.Ki:>6.3f}\t{server.Kd:>6.3f}")
