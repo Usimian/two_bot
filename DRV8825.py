@@ -33,14 +33,12 @@ class DRV8825:
         self.digital_write(self.enable_pin, 0)
 
     def SetMicroStep(self, mode, stepformat):
-        """
-        (1) mode
-            'hardware' :    Use the switch on the module to control the microstep
-            'software' :    Use software to control microstep pin levels
-                Need to put the All switch to 0, needs resistors soldered in
-        (2) stepformat
-            ('fullstep', 'halfstep', '1/4step', '1/8step', '1/16step', '1/32step')
-        """
+        # (1) mode
+        #     'hardware' :    Use the switch on the module to control the microstep
+        #     'software' :    Use software to control microstep pin levels
+        #         Need to put the All switch to 0, needs resistors soldered in
+        # (2) stepformat
+        #     ('fullstep', 'halfstep', '1/4step', '1/8step', '1/16step', '1/32step')
         microstep = {
             "fullstep": (0, 0, 0),
             "halfstep": (1, 0, 0),
@@ -49,7 +47,6 @@ class DRV8825:
             "1/16step": (0, 0, 1),
             "1/32step": (1, 0, 1),
         }
-
         print("Control mode:", mode)
         if mode == ControlMode[1]:
             print("set pins")

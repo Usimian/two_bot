@@ -146,7 +146,6 @@ def control_loop():
             Rd = chan2.voltage  # 0 - 3.3
             # v_batt = chan3.voltage * 152.6 / 13.9
             pid.tunings = (Rp, Ri, Rd)  # Balance PID tuning
-
             old_loop_time = new_time
 
 
