@@ -76,7 +76,7 @@ REV = 1
 
 v_batt = 0
 
-SERVER_IP = "192.168.50.50"  # I am the host
+SERVER_IP = "192.168.1.167"  # I am the host
 PORT = 5000  # Port to listen on
 
 

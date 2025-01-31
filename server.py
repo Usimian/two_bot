@@ -1,16 +1,19 @@
-import socket
+import paho.mqtt.client as mqtt
 import json
 import threading
+import time
 
-SERVER_IP = "192.168.50.50"  # Host
-PORT = 5000  # The same port as the server
+MQTT_BROKER = "localhost"  # MQTT broker address
+MQTT_PORT = 1883  # Default MQTT port
+TOPIC_SEND = "two_bot/data"  # Topic for sending data
+TOPIC_RECEIVE = "two_bot/control"  # Topic for receiving control commands
 
 
 class PiServer:
-    def __init__(self, host=SERVER_IP, port=PORT):
-        self.host = host
+    def __init__(self, broker=MQTT_BROKER, port=MQTT_PORT):
+        self.broker = broker
         self.port = port
-        self.server_socket = None
+        self.client = None
         self.running = False
 
         # Client variables for transfer
@@ -26,30 +29,54 @@ class PiServer:
         self.Ki2 = 0
         self.Kd2 = 0
         self.Pos = 0
+        
+        # MQTT setup
+        self.setup_mqtt()
+
+    def setup_mqtt(self):
+        self.client = mqtt.Client()
+        self.client.on_connect = self.on_connect
+        self.client.on_message = self.on_message
+        
+    def on_connect(self, client, userdata, flags, rc):
+        print(f"Connected to MQTT broker with result code {rc}")
+        # Subscribe to control topic on connect/reconnect
+        self.client.subscribe(TOPIC_RECEIVE)
+
+    def on_message(self, client, userdata, msg):
+        try:
+            # Handle incoming slider value
+            if msg.topic == TOPIC_RECEIVE:
+                self.slider_val = int(msg.payload.decode())
+                self.slider_update = True
+        except Exception as e:
+            print(f"Error processing message: {e}")
 
     def start(self):
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen()
-        self.running = True
-        print(f"Server started on {self.host}:{self.port}")
-        while self.running:
-            try:
-                conn, addr = self.server_socket.accept()
-                client_thread = threading.Thread(target=self.handle_client, args=(conn, addr))
-                client_thread.start()
-                print("handle_client thread created.")
-            except socket.timeout:
-                continue
+        try:
+            self.client.connect(self.broker, self.port, 60)
+            self.running = True
+            
+            # Start the MQTT loop in a background thread
+            self.client.loop_start()
+            
+            # Start the publishing loop in a separate thread
+            self.publish_thread = threading.Thread(target=self.publish_data)
+            self.publish_thread.start()
+            
+            print(f"MQTT Server started on {self.broker}:{self.port}")
+        except Exception as e:
+            print(f"Failed to start server: {e}")
+            self.stop()
 
     def stop(self):
         self.running = False
-        if self.server_socket:
-            self.server_socket.close()
+        if self.client:
+            self.client.loop_stop()
+            self.client.disconnect()
         print("Server stopped")
 
-    def handle_client(self, conn, addr):
-        print(f"Connected by {addr}")
+    def publish_data(self):
         while self.running:
             try:
                 data = {
@@ -65,29 +92,23 @@ class PiServer:
                     "Kd2": self.Kd2,
                     "Pos": self.Pos,
                 }
-                # Send data as JSON
+                # Publish data as JSON
                 json_data = json.dumps(data)
-                conn.send(json_data.encode())  # Send K numbers to client
-
-                data = conn.recv(1024)  # Get slider position value
-                if not data:
+                self.client.publish(TOPIC_SEND, json_data)
+                time.sleep(0.1)  # Publish at 10Hz
+            except Exception as e:
+                print(f"Error publishing data: {e}")
+                if not self.running:
                     break
-                s = data.decode()
-                self.slider_val = int(s)
-                self.slider_update = True
-
-            except KeyboardInterrupt:
-                break
-        conn.close()
 
 
-# Usage
-# if __name__ == "__main__":
-#     server = PiServer()
-#     server_thread = threading.Thread(target=server.start)
-#     server_thread.start()
-#     time.sleep(1)
-
-#     # To stop the server
-#     server.stop()
-#     server_thread.join()
+# Usage example:
+if __name__ == "__main__":
+    server = PiServer()
+    server.start()
+    
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        server.stop()

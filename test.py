@@ -1,39 +1,41 @@
-# import RPi.GPIO as GPIO
+import paho.mqtt.client as mqtt
+import json
 import time
-from DRV8825 import DRV8825
 
+# MQTT Configuration
+MQTT_BROKER = "localhost"
+MQTT_PORT = 1883
+TOPIC_DATA = "two_bot/control_topic"
 
-try:
-    Motor1 = DRV8825(dir_pin=13, step_pin=19, enable_pin=12, mode_pins=(16, 17, 20))
-    Motor2 = DRV8825(dir_pin=24, step_pin=18, enable_pin=4, mode_pins=(21, 22, 27))
+def on_connect(client, userdata, flags, rc):
+    print(f"Connected to MQTT broker with result code: {rc}")
+    client.subscribe(TOPIC_DATA)
+    print(f"Subscribed to topic: {TOPIC_DATA}")
 
-    Motor1.Stop()
-    Motor2.Stop()
+def on_message(client, userdata, msg):
+    try:
+        data = json.loads(msg.payload.decode())
+        print("\n--- Received Control Message ---")
+        for key, value in data.items():
+            print(f"{key}: {value}")
+        print("-" * 25)
+    except Exception as e:
+        print(f"Error processing message: {e}")
 
-    # 1.8 degree: nema23, nema14
-    # software Control :
-    # 'fullstep': A cycle = 200 steps
-    # 'halfstep': A cycle = 200 * 2 steps
-    # '1/4step': A cycle = 200 * 4 steps
-    # '1/8step': A cycle = 200 * 8 steps
-    # '1/16step': A cycle = 200 * 16 steps
-    # '1/32step': A cycle = 200 * 32 steps
+def main():
+    client = mqtt.Client()
+    client.on_connect = on_connect
+    client.on_message = on_message
 
-    Motor2.SetMicroStep("hardware", "fullstep")
-    Motor2.TurnStep(Dir="forward", steps=200, stepdelay=0.005)
-    time.sleep(0.5)
-    Motor2.TurnStep(Dir="backward", steps=200, stepdelay=0.005)
-    Motor2.Stop()
+    try:
+        print(f"Connecting to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        client.loop_forever()
+    except KeyboardInterrupt:
+        print("\nExiting...")
+        client.disconnect()
+    except Exception as e:
+        print(f"Error: {e}")
 
-    Motor1.SetMicroStep("hardware", "fullstep")
-    Motor1.TurnStep(Dir="forward", steps=200, stepdelay=0.005)
-    time.sleep(0.5)
-    Motor1.TurnStep(Dir="backward", steps=200, stepdelay=0.005)
-    Motor1.Stop()
-
-except KeyboardInterrupt:
-    # GPIO.cleanup()
-    print("\nMotor stop")
-    Motor1.Stop()
-    Motor2.Stop()
-    exit()
+if __name__ == "__main__":
+    main()
