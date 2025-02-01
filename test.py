@@ -18,7 +18,6 @@ def on_message(client, userdata, msg):
         print("\n--- Received Control Message ---")
         for key, value in data.items():
             print(f"{key}: {value}")
-        print("-" * 25)
     except Exception as e:
         print(f"Error processing message: {e}")
 
