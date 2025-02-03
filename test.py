@@ -1,23 +1,31 @@
 import paho.mqtt.client as mqtt
 import json
 import time
+import random
 
 # MQTT Configuration
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
-TOPIC_DATA = "two_bot/control_topic"
+TOPIC_CONTROL = "two_bot/control_request"
+TOPIC_STATUS = "two_bot/status_request"
+TOPIC_RESPONSE = "two_bot/status_response"
 
 def on_connect(client, userdata, flags, rc):
     print(f"Connected to MQTT broker with result code: {rc}")
-    client.subscribe(TOPIC_DATA)
-    print(f"Subscribed to topic: {TOPIC_DATA}")
+    client.subscribe([(TOPIC_CONTROL, 0), (TOPIC_STATUS, 0)])
+    print(f"Subscribed to topics: {TOPIC_CONTROL}, {TOPIC_STATUS}")
 
 def on_message(client, userdata, msg):
     try:
-        data = json.loads(msg.payload.decode())
-        print("\n--- Received Control Message ---")
-        for key, value in data.items():
-            print(f"{key}: {value}")
+        print(f"\n--- Received Message: {msg.topic} ---")
+        if msg.topic == TOPIC_STATUS:
+            voltage = round(random.uniform(9, 13), 2)
+            client.publish(TOPIC_RESPONSE, str(voltage))
+            print(f"Published battery voltage response: {voltage}")
+        else:
+            data = json.loads(msg.payload.decode())
+            for key, value in data.items():
+                print(f"{key}: {value}")
     except Exception as e:
         print(f"Error processing message: {e}")
 
