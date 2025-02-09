@@ -5,8 +5,9 @@ import time
 
 MQTT_BROKER = "localhost"  # MQTT broker address
 MQTT_PORT = 1883  # Default MQTT port
-TOPIC_SEND = "two_bot/data"  # Topic for sending data
-TOPIC_RECEIVE = "two_bot/control"  # Topic for receiving control commands
+TOPIC_CONTROL = "two_bot/control_request"  # Topic for receiving control commands
+TOPIC_STATUS = "two_bot/status_request"  # Topic for receiving status requests
+TOPIC_RESPONSE = "two_bot/status_response"  # Topic for sending status responses
 
 
 class PiServer:
@@ -21,7 +22,7 @@ class PiServer:
         self.Rp = 0
         self.Ri = 0
         self.Rd = 0
-        self.v_batt = 0
+        self.Vb = 0
         self.Kp = 0
         self.Ki = 0
         self.Kd = 0
@@ -40,15 +41,31 @@ class PiServer:
         
     def on_connect(self, client, userdata, flags, rc):
         print(f"Connected to MQTT broker with result code {rc}")
-        # Subscribe to control topic on connect/reconnect
-        self.client.subscribe(TOPIC_RECEIVE)
+        # Subscribe to control and status topics on connect/reconnect
+        self.client.subscribe([(TOPIC_CONTROL, 0), (TOPIC_STATUS, 0)])
+        print(f"Subscribed to topics: {TOPIC_CONTROL}, {TOPIC_STATUS}")
 
     def on_message(self, client, userdata, msg):
         try:
-            # Handle incoming slider value
-            if msg.topic == TOPIC_RECEIVE:
-                self.slider_val = int(msg.payload.decode())
-                self.slider_update = True
+            print(f"\n--- Received Message: {msg.topic} ---")
+            if msg.topic == TOPIC_STATUS:
+                # Send current status
+                response = {
+                    "Vb": self.Vb,
+                    "Rp": self.Rp,
+                    "Ri": self.Ri,
+                    "Rd": self.Rd
+                }
+                self.client.publish(TOPIC_RESPONSE, json.dumps(response))
+                print(f"Published status response: {response}")
+            elif msg.topic == TOPIC_CONTROL:
+                # Handle control messages
+                data = json.loads(msg.payload.decode())
+                for key, value in data.items():
+                    print(f"{key}: {value}")
+                    # Update corresponding values based on control message
+                    if hasattr(self, key):
+                        setattr(self, key, value)
         except Exception as e:
             print(f"Error processing message: {e}")
 
@@ -79,25 +96,10 @@ class PiServer:
     def publish_data(self):
         while self.running:
             try:
-                data = {
-                    "Rp": self.Rp,
-                    "Ri": self.Ri,
-                    "Rd": self.Rd,
-                    "Vb": self.v_batt,
-                    "Kp": self.Kp,
-                    "Ki": self.Ki,
-                    "Kd": self.Kd,
-                    "Kp2": self.Kp2,
-                    "Ki2": self.Ki2,
-                    "Kd2": self.Kd2,
-                    "Pos": self.Pos,
-                }
-                # Publish data as JSON
-                json_data = json.dumps(data)
-                self.client.publish(TOPIC_SEND, json_data)
-                time.sleep(0.1)  # Publish at 10Hz
+                # Only publish on status request now
+                time.sleep(0.1)  # Sleep to prevent busy loop
             except Exception as e:
-                print(f"Error publishing data: {e}")
+                print(f"Error in publish loop: {e}")
                 if not self.running:
                     break
 

@@ -1,25 +1,176 @@
-import time
 import math
 from simple_pid import PID
 import numpy as np
 from PioLED import PioLED
 import busio
 from board import SCL, SDA
-
-import qwiic_icm20948  # IMU
-import adafruit_ads1x15.ads1015 as ADS  # 4 chan ADC
-from adafruit_ads1x15.analog_in import AnalogIn
-
-from server import PiServer
+import random
+import time
+import json
 import threading
 
-from DRV8825 import DRV8825
+import qwiic_icm20948  # IMU
+import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
+from server import PiServer
+from mock_devices import MockIMU, MockADC, MockAnalogIn, MockOLED, MockI2C
 
-i2c = busio.I2C(SCL, SDA)
+# Mock GPIO for no hardware conditions
+class MockGPIO:
+    BCM = "BCM"
+    OUT = "OUT"
+    
+    @staticmethod
+    def setmode(mode):
+        pass
+        
+    @staticmethod
+    def setwarnings(flag):
+        pass
+        
+    @staticmethod
+    def setup(pin, mode):
+        pass
+        
+    @staticmethod
+    def output(pin, value):
+        pass
 
-myADC = ADS.ADS1015(i2c)
+# Mock DRV8825 stepper driver
+class MockDRV8825:
+    def __init__(self, dir_pin, step_pin, enable_pin, mode_pins):
+        self.dir_pin = dir_pin
+        self.step_pin = step_pin
+        self.enable_pin = enable_pin
+        self.mode_pins = mode_pins
+        self.current_position = 0
+        self.is_enabled = False
+        self.direction = "forward"
+        print(f"Mock stepper initialized (pins: dir={dir_pin}, step={step_pin}, enable={enable_pin})")
+    
+    def digital_write(self, pin, value):
+        if pin == self.enable_pin:
+            self.is_enabled = bool(value)
+            if value:
+                print(f"Mock stepper enabled")
+            else:
+                print(f"Mock stepper disabled")
+        elif pin == self.dir_pin:
+            self.direction = "forward" if value == 0 else "backward"
+            print(f"Mock stepper direction: {self.direction}")
+    
+    def Stop(self):
+        self.is_enabled = False
+        print("Mock stepper stopped")
+    
+    def SetMicroStep(self, mode, stepformat):
+        print(f"Mock stepper microstepping set to: {stepformat}")
+    
+    def TurnStep(self, Dir, steps, stepdelay=0.005):
+        if not self.is_enabled:
+            print("Mock stepper is disabled")
+            return
+            
+        if Dir not in ["forward", "backward"]:
+            print("Invalid direction")
+            return
+            
+        step_change = steps if Dir == "forward" else -steps
+        self.current_position += step_change
+        print(f"Mock stepper moved {steps} steps {Dir}. Current position: {self.current_position}")
+        # Simulate the time it would take
+        time.sleep(steps * stepdelay * 2)
 
-myIMU = qwiic_icm20948.QwiicIcm20948(address=0x68)
+def initialize_motors():
+    global Motor1, Motor2, GPIO
+    try:
+        # Try to import real GPIO
+        import RPi.GPIO as GPIO
+        # Test GPIO access
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        print("GPIO hardware detected, using real stepper motors")
+        from DRV8825 import DRV8825
+        Motor1 = DRV8825(dir_pin=13, step_pin=19, enable_pin=12, mode_pins=(16, 17, 20))
+        Motor2 = DRV8825(dir_pin=24, step_pin=18, enable_pin=4, mode_pins=(21, 22, 27))
+    except Exception as e:
+        print(f"GPIO initialization failed: {e}")
+        print("Using mock stepper motors")
+        GPIO = MockGPIO
+        Motor1 = MockDRV8825(dir_pin=13, step_pin=19, enable_pin=12, mode_pins=(16, 17, 20))
+        Motor2 = MockDRV8825(dir_pin=24, step_pin=18, enable_pin=4, mode_pins=(21, 22, 27))
+
+# Initialize motors
+initialize_motors()
+
+# I2C error handling wrapper class
+class I2CDevice:
+    def __init__(self, device, name):
+        self.device = device
+        self.name = name
+        self.error_count = 0
+        self.max_retries = 3
+        self.retry_delay = 0.1  # seconds
+
+    def execute(self, operation, *args, **kwargs):
+        for attempt in range(self.max_retries):
+            try:
+                return operation(*args, **kwargs)
+            except Exception as e:
+                self.error_count += 1
+                print(f"I2C error on {self.name}: {str(e)}")
+                if attempt < self.max_retries - 1:
+                    print(f"Retrying {self.name} operation in {self.retry_delay}s (attempt {attempt + 2}/{self.max_retries})")
+                    time.sleep(self.retry_delay)
+                else:
+                    print(f"Failed to execute {self.name} operation after {self.max_retries} attempts")
+                    raise
+
+# Initialize devices with hardware detection
+def initialize_i2c_devices():
+    global i2c, myADC, myIMU, oled, AnalogIn
+    try:
+        # Try to initialize real I2C bus
+        i2c = busio.I2C(SCL, SDA)
+        if not i2c.try_lock():
+            raise RuntimeError("Unable to lock I2C bus")
+        i2c.unlock()
+        
+        print("I2C hardware detected, using real devices")
+        try:
+            myADC = I2CDevice(ADS.ADS1015(i2c), "ADC")
+        except Exception as e:
+            print(f"ADC initialization failed: {e}, using mock ADC")
+            myADC = I2CDevice(MockADC(), "MockADC")
+            AnalogIn = MockAnalogIn
+            
+        try:
+            myIMU = I2CDevice(qwiic_icm20948.QwiicIcm20948(address=0x68), "IMU")
+        except Exception as e:
+            print(f"IMU initialization failed: {e}, using mock IMU")
+            myIMU = I2CDevice(MockIMU(), "MockIMU")
+            
+        try:
+            oled = I2CDevice(PioLED(), "OLED")
+        except Exception as e:
+            print(f"OLED initialization failed: {e}, using mock OLED")
+            oled = I2CDevice(MockOLED(), "MockOLED")
+            
+    except Exception as e:
+        print(f"No I2C hardware detected: {e}")
+        print("Initializing all mock devices")
+        i2c = MockI2C()
+        myADC = I2CDevice(MockADC(), "MockADC")
+        myIMU = I2CDevice(MockIMU(), "MockIMU")
+        oled = I2CDevice(MockOLED(), "MockOLED")
+        AnalogIn = MockAnalogIn
+
+# Initialize devices
+initialize_i2c_devices()
+
+def is_mock_device(device):
+    """Check if a device is a mock implementation"""
+    return device.__class__.__name__.startswith('Mock')
 
 # PID balance controller
 Kp = 6.0
@@ -37,29 +188,93 @@ pid_pos = PID(Kp2, Ki2, Kd2, setpoint=0)
 pid_pos.output_limits = (-7, 7)
 pid_pos.sample_time = 0.02
 
-# Create single-ended input on channels 0 - 3
-chan0 = AnalogIn(myADC, ADS.P0)
-chan1 = AnalogIn(myADC, ADS.P1)
-chan2 = AnalogIn(myADC, ADS.P2)
-chan3 = AnalogIn(myADC, ADS.P3)
+battery_cal_factor = 152.6 / 13.9
 
-v_batt = chan3.voltage * 152.6 / 13.9
+def get_simulated_voltage():
+    """Simulate battery voltage between 9V and 12V"""
+    # Start with base voltage of 12V
+    base_voltage = 12.0
+    
+    # Add some random noise (-0.1V to +0.1V)
+    noise = random.uniform(-0.1, 0.1)
+    
+    # If motors are enabled, simulate voltage drop
+    if hasattr(Motor1, 'is_enabled') and Motor1.is_enabled:
+        # Simulate larger voltage drop when motors are active
+        voltage_drop = random.uniform(0.5, 1.5)
+    else:
+        # Small voltage drop when idle
+        voltage_drop = random.uniform(0.1, 0.3)
+        
+    # Calculate final voltage
+    voltage = base_voltage + noise - voltage_drop
+    
+    # Ensure voltage stays within 9V to 12V range
+    return max(9.0, min(12.0, voltage))
+
+
+# Initialize ADC channels with error handling
+try:
+    # Force simulation if using mock ADC
+    if is_mock_device(myADC.device):
+        raise Exception("Using mock ADC")
+        
+    # Create single-ended input on channels 0 - 3
+    chan0 = AnalogIn(myADC.device, ADS.P0)
+    chan1 = AnalogIn(myADC.device, ADS.P1)
+    chan2 = AnalogIn(myADC.device, ADS.P2)
+    chan3 = AnalogIn(myADC.device, ADS.P3)
+    Vb = chan3.voltage * battery_cal_factor
+except Exception as e:
+    print(f"Failed to initialize ADC channels: {e}")
+    chan0 = chan1 = chan2 = chan3 = None
+    Vb = get_simulated_voltage()
+
+def read_adc_values():
+    """Read ADC values with error handling"""
+    try:
+        # Check if myADC and its device attribute are properly initialized
+        if myADC is None:
+            raise Exception("ADC not initialized")
+
+        # Check if myADC.device is not None
+        if not hasattr(myADC, 'device') or myADC.device is None:
+            raise Exception("ADC not initialized")
+
+        # Force simulation if using mock ADC
+        if is_mock_device(myADC.device):
+            raise Exception("Using mock ADC")
+
+        # Read ADC values
+        chan0 = AnalogIn(myADC.device, ADS.P0)
+        chan1 = AnalogIn(myADC.device, ADS.P1)
+        chan2 = AnalogIn(myADC.device, ADS.P2)
+        chan3 = AnalogIn(myADC.device, ADS.P3)
+
+        Rp = chan0.voltage * 5
+        Ri = chan1.voltage * 5
+        Rd = chan2.voltage
+        Vb = chan3.voltage * battery_cal_factor
+
+        return Rp, Ri, Rd, Vb
+    except Exception as e:
+        return 0, 0, 0, get_simulated_voltage()
+
+read_adc_values()
+
 # oled display
-oled = PioLED()
+oled.device.clear()
 
-oled.clear()
+oled.device.draw_rectangle(0, 25, Vb * 90 / 17.2, 6, fill=True)
+oled.device.display_text(f"{Vb:.2f} ", 92, 23)
 
-oled.draw_rectangle(0, 25, 90, 6, fill=False)
-oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
-oled.display_text(f"{v_batt:.2f} ", 92, 23)
+Rp = 0
+Ri = 0
+Rd = 0
 
-Rp = chan0.voltage * 5
-Ri = chan1.voltage * 5
-Rd = chan2.voltage
-
-oled.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {v_batt:.2f}", 0, -1)
-oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7)
-oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15)
+oled.device.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {Vb:.2f}", 0, -1)
+oled.device.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7)
+oled.device.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15)
 
 old_pos = 0
 x_vel = 0
@@ -74,56 +289,78 @@ L_MTR = 1
 FWD = 0
 REV = 1
 
-v_batt = 0
+Vb = 0
 
 SERVER_IP = "192.168.1.167"  # I am the host
-PORT = 5000  # Port to listen on
-
+PORT = 1883  # Port to listen on
 
 def initialize_system():
-    myIMU.begin()    # Initialize IMU
+    try:
+        if not myIMU.execute(lambda: myIMU.device.begin()):
+            print("ICM20948 IMU not connected.")
+            return False
+        print("IMU initialized.")
+    except Exception as e:
+        print(f"Failed to initialize IMU: {str(e)}")
+        return False
 
-    if myIMU.connected is False:
-        print("ICM20948 IMU not connected.")
-        return
+    try:
+        Motor1.Stop()
+        Motor2.Stop()
 
-    print("IMU initialized.")
+        # Read ADC values with simulation fallback
+        Rp, Ri, Rd, Vb = read_adc_values()
 
-    Motor1.Stop()
-    Motor2.Stop()
+        # Update OLED display with error handling
+        oled.execute(lambda: oled.device.clear())
+        oled.execute(lambda: oled.device.draw_rectangle(0, 25, Vb * 90 / 17.2, 6, fill=True))
+        oled.execute(lambda: oled.device.display_text(f"{Vb:.2f} ", 92, 23))
+        oled.execute(lambda: oled.device.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {Vb:.2f}", 0, -1))
+        oled.execute(lambda: oled.device.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7))
+        oled.execute(lambda: oled.device.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15))
 
-    print(f"Rp:  {Rp:>5.2f}\tRi:  {Ri:>5.2f}\tRd:  {Rd:>5.2f}\tBattery: {v_batt:>5.2f}")
-    print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")
-    print(f"Kp2: {pid_pos.Kp:>5.2f}\tKi2: {pid_pos.Ki:>5.2f}\tKd2: {pid_pos.Kd:>5.2f}")
+        print(f"Rp:  {Rp:>5.2f}\tRi:  {Ri:>5.2f}\tRd:  {Rd:>5.2f}\tBattery: {Vb:>5.2f}")
+        print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")
+        print(f"Kp2: {pid_pos.Kp:>5.2f}\tKi2: {pid_pos.Ki:>5.2f}\tKd2: {pid_pos.Kd:>5.2f}")
+        return True
+    except Exception as e:
+        print(f"Error in system initialization: {str(e)}")
+        return False
 
 
 def read_IMU(angle):
     # Read accelerometer data
-    if myIMU.dataReady():
-        myIMU.getAgmt()  # read all axis and temp from sensor, note this also updates all instance variables
+    try:
+        if myIMU.execute(lambda: myIMU.device.dataReady()):
+            myIMU.execute(lambda: myIMU.device.getAgmt())
+            ax = myIMU.device.axRaw
+            ay = myIMU.device.ayRaw
+            az = myIMU.device.azRaw
+            gx = myIMU.device.gxRaw
+            gy = myIMU.device.gyRaw
+            gz = myIMU.device.gzRaw
 
-        # Calculate pitch angle
-        accel_angle = math.atan2(myIMU.ayRaw, myIMU.azRaw) * 180 / math.pi - angle_corr  # Degrees, Correct for IMU angle when balanced
-        gyro_angle = myIMU.gxRaw / 131.0  # Gyro sensitivity is 131 LSB/degrees/sec
-
-        # Complementary filter to combine accelerometer and gyroscope data
-        angle = 0.99 * (angle + gyro_angle * 0.02) + 0.01 * accel_angle  # Degrees
-        # print(f"accel_angle: {accel_angle:>.1f}\tgyro_angle: {gyro_angle:>.1f}\tangle: {angle:>.1f}\tcorr: {angle_corr:>.1f}")
-        return angle
+            # Calculate pitch angle from accelerometer
+            pitch = math.atan2(ay, math.sqrt(ax * ax + az * az)) * 180.0 / math.pi
+            return pitch + angle_corr
+    except Exception as e:
+        print(f"Error reading IMU data: {str(e)}")
+        return angle  # Return previous angle on error
+    return angle
 
 
 def calibrate_gyro(samples=1000):
     print("Calibrating gyroscope. Keep the sensor still.")
     gyro_data = []
     for _ in range(samples):
-        if myIMU.dataReady():
-            myIMU.getAgmt()  # read all axis and temp from sensor
-            ax = myIMU.axRaw
-            ay = myIMU.ayRaw
-            az = myIMU.azRaw
-            # gx = myIMU.gxRaw
-            # gy = myIMU.gyRaw
-            # gz = myIMU.gzRaw
+        if myIMU.execute(lambda: myIMU.device.dataReady()):
+            myIMU.execute(lambda: myIMU.device.getAgmt())  # read all axis and temp from sensor
+            ax = myIMU.device.axRaw
+            ay = myIMU.device.ayRaw
+            az = myIMU.device.azRaw
+            # gx = myIMU.device.gxRaw
+            # gy = myIMU.device.gyRaw
+            # gz = myIMU.device.gzRaw
             print(f"{ax}, {ay}, {az}")
             # print(f"{gx}, {gy}, {gz}")
             # gyro_data.append([gx, gy, gz])
@@ -166,18 +403,15 @@ def move_to_position(target_position):
 
 
 try:
-    Motor1 = DRV8825(dir_pin=13, step_pin=19, enable_pin=12, mode_pins=(16, 17, 20))
-    Motor2 = DRV8825(dir_pin=24, step_pin=18, enable_pin=4, mode_pins=(21, 22, 27))
-
     initialize_system()
     pos_setpoint = 0
-    server = PiServer(host=SERVER_IP, port=PORT)  # Create server class
+    server = PiServer(broker=SERVER_IP, port=PORT)  # Create server class
     server_thread = threading.Thread(target=server.start)
     server_thread.start()
     server.Rp = Rp
     server.Ri = Ri
     server.Rd = Rd
-    server.v_batt = v_batt
+    server.Vb = Vb
     server.Kp = pid.Kp
     server.Ki = pid.Ki
     server.Kd = pid.Kd
@@ -194,7 +428,7 @@ try:
     # calibrate_gyro()
     old_loop_time = time.time()  # sec
     while True:
-        pos_err = move_to_position(server.slider_val)
+        pos_err = move_to_position(pos_setpoint)  # Use pos_setpoint instead of server.slider_val
         prevAngle = read_IMU(prevAngle)
         control = pid(prevAngle + pos_err)
         speed = control
@@ -205,14 +439,13 @@ try:
         set_motor_speed(left_speed, right_speed)
         new_time = time.time()
         if new_time > old_loop_time + 1.0:  # Display update loop
-            Rp = chan0.voltage * 5
-            Ri = chan1.voltage * 5
-            Rd = chan2.voltage
-            v_batt = chan3.voltage * 152.6 / 13.9
+            # Read ADC values with simulation fallback
+            Rp, Ri, Rd, Vb = read_adc_values()
+
             server.Rp = Rp
             server.Ri = Ri
             server.Rd = Rd
-            server.v_batt = v_batt
+            server.Vb = Vb  # Updated from v_batt to Vb
             # pid.tunings = (Rp, Ri, Rd)  # Balance PID tuning
             # pid_pos.tunings = (Rp, Ri, Rd)  # Position PID tuning
             # print(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.2f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")

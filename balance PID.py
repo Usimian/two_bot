@@ -67,14 +67,14 @@ REV = 1
 
 oled = PioLED()
 
-v_batt = 0
+Vb = 0
 
 SERVER_IP = "192.168.50.50"  # I am the host
 PORT = 5000  # Port to listen on
 
 
 def initialize_system():
-    global v_batt
+    global Vb
 
     # Initialize motor drive
     if myMotor.connected is False:
@@ -112,18 +112,18 @@ def initialize_system():
 
     print("IMU initialized.")
 
-    v_batt = chan3.voltage * 152.6 / 13.9
+    Vb = chan3.voltage * 152.6 / 13.9
     # oled display
     oled.clear()
-    oled.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {v_batt:.2f}", 0, -1)
+    oled.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {Vb:.2f}", 0, -1)
     oled.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7)
     oled.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15)
 
     oled.draw_rectangle(0, 25, 90, 6, fill=False)
-    oled.draw_rectangle(0, 25, v_batt * 90 / 17.2, 6, fill=True)
-    oled.display_text(f"{v_batt:.2f} ", 92, 23)
+    oled.draw_rectangle(0, 25, Vb * 90 / 17.2, 6, fill=True)
+    oled.display_text(f"{Vb:.2f} ", 92, 23)
 
-    print(f"Rp:  {Rp:>5.2f}\tRi:  {Ri:>5.2f}\tRd:  {Rd:>5.2f}\tBattery: {v_batt:>5.2f}")
+    print(f"Rp:  {Rp:>5.2f}\tRi:  {Ri:>5.2f}\tRd:  {Rd:>5.2f}\tBattery: {Vb:>5.2f}")
     print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")
     print(f"Kp2: {pid_pos.Kp:>5.2f}\tKi2: {pid_pos.Ki:>5.2f}\tKd2: {pid_pos.Kd:>5.2f}")
 
@@ -204,7 +204,7 @@ try:
     server.Rp = Rp
     server.Ri = Ri
     server.Rd = Rd
-    server.v_batt = v_batt
+    server.v_batt = Vb
     server.Kp = pid.Kp
     server.Ki = pid.Ki
     server.Kd = pid.Kd
@@ -235,11 +235,11 @@ try:
             Rp = chan0.voltage * 5
             Ri = chan1.voltage * 5
             Rd = chan2.voltage
-            v_batt = chan3.voltage * 152.6 / 13.9
+            Vb = chan3.voltage * 152.6 / 13.9
             server.Rp = Rp
             server.Ri = Ri
             server.Rd = Rd
-            server.v_batt = v_batt
+            server.v_batt = Vb
             # pid.tunings = (Rp, Ri, Rd)  # Balance PID tuning
             # pid_pos.tunings = (Rp, Ri, Rd)  # Position PID tuning
             # print(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.2f}\told_pos: {old_pos:>5.2f}\t{pos_err:5.2f}")
