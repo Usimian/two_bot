@@ -20,8 +20,14 @@ def on_message(client, userdata, msg):
         print(f"\n--- Received Message: {msg.topic} ---")
         if msg.topic == TOPIC_STATUS:
             voltage = round(random.uniform(9, 13), 2)
-            client.publish(TOPIC_RESPONSE, str(voltage))
-            print(f"Published battery voltage response: {voltage}")
+            response = {
+                "Vb": voltage,
+                "Rp": round(random.uniform(0, 10), 2),
+                "Ri": round(random.uniform(0, 10), 2),
+                "Rd": round(random.uniform(0, 10), 2)
+            }
+            client.publish(TOPIC_RESPONSE, json.dumps(response))
+            print(f"Published status response: {response}")
         else:
             data = json.loads(msg.payload.decode())
             for key, value in data.items():
