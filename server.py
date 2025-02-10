@@ -49,12 +49,12 @@ class PiServer:
         try:
             print(f"\n--- Received Message: {msg.topic} ---")
             if msg.topic == TOPIC_STATUS:
-                # Send current status
+                # Send current status with 2 significant digits
                 response = {
-                    "Vb": self.Vb,
-                    "Rp": self.Rp,
-                    "Ri": self.Ri,
-                    "Rd": self.Rd
+                    "Vb": float(f"{self.Vb:.2f}"),
+                    "Rp": float(f"{self.Rp:.2f}"),
+                    "Ri": float(f"{self.Ri:.2f}"),
+                    "Rd": float(f"{self.Rd:.2f}")
                 }
                 self.client.publish(TOPIC_RESPONSE, json.dumps(response))
                 print(f"Published status response: {response}")

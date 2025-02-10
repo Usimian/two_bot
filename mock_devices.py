@@ -48,11 +48,21 @@ class MockADC:
     def __init__(self):
         self.base_voltage = 12.0
         self.last_update = time.time()
+        # Initialize response values
+        self.rp = 0.0
+        self.ri = 0.0
+        self.rd = 0.0
+        self._update_interval = 0.1  # Update values every 100ms
         
     def get_voltage(self, channel):
         """Simulate voltage readings for different channels"""
         now = time.time()
         dt = now - self.last_update
+        
+        # Update response values periodically
+        if dt >= self._update_interval:
+            self._simulate_response_values()
+            self.last_update = now
         
         # Add some random noise
         noise = random.uniform(-0.1, 0.1)
@@ -60,11 +70,27 @@ class MockADC:
         # Different behavior for different channels
         if channel == 3:  # Battery voltage
             voltage = self.simulate_battery_voltage()
-        else:  # Potentiometer channels
+        elif channel == 0:  # Rp channel
+            voltage = self.rp
+        elif channel == 1:  # Ri channel
+            voltage = self.ri
+        elif channel == 2:  # Rd channel
+            voltage = self.rd
+        else:  # Other channels
             voltage = random.uniform(0, 5)
             
-        self.last_update = now
-        return voltage
+        return voltage + noise
+        
+    def _simulate_response_values(self):
+        """Simulate PID response values with realistic behavior"""
+        # Proportional response (-5 to 5)
+        self.rp = random.uniform(-5, 5)
+        
+        # Integral response (slowly changing)
+        self.ri = max(-10, min(10, self.ri + random.uniform(-0.2, 0.2)))
+        
+        # Derivative response (quick changes)
+        self.rd = random.uniform(-2, 2)
         
     def simulate_battery_voltage(self):
         """Simulate battery voltage with realistic behavior"""
@@ -111,3 +137,69 @@ class MockOLED:
         
     def display_text(self, text, x=0, y=0):
         print(f"Mock OLED: {text} at ({x}, {y})")  # Print to console instead
+
+class MockGPIO:
+    """Mock GPIO for testing without hardware"""
+    BCM = "BCM"
+    OUT = "OUT"
+    
+    @staticmethod
+    def setmode(mode):
+        pass
+        
+    @staticmethod
+    def setwarnings(flag):
+        pass
+        
+    @staticmethod
+    def setup(pin, mode):
+        pass
+        
+    @staticmethod
+    def output(pin, value):
+        pass
+
+class MockDRV8825:
+    """Mock DRV8825 stepper driver for testing"""
+    def __init__(self, dir_pin, step_pin, enable_pin, mode_pins):
+        self.dir_pin = dir_pin
+        self.step_pin = step_pin
+        self.enable_pin = enable_pin
+        self.mode_pins = mode_pins
+        self.current_position = 0
+        self.is_enabled = False
+        self.direction = "forward"
+        print(f"Mock stepper initialized (pins: dir={dir_pin}, step={step_pin}, enable={enable_pin})")
+    
+    def digital_write(self, pin, value):
+        if pin == self.enable_pin:
+            self.is_enabled = bool(value)
+            if value:
+                print(f"Mock stepper enabled")
+            else:
+                print(f"Mock stepper disabled")
+        elif pin == self.dir_pin:
+            self.direction = "forward" if value == 0 else "backward"
+            print(f"Mock stepper direction: {self.direction}")
+    
+    def Stop(self):
+        self.is_enabled = False
+        print("Mock stepper stopped")
+    
+    def SetMicroStep(self, mode, stepformat):
+        print(f"Mock stepper microstepping set to: {stepformat}")
+    
+    def TurnStep(self, Dir, steps, stepdelay=0.005):
+        if not self.is_enabled:
+            print("Mock stepper is disabled")
+            return
+            
+        if Dir not in ["forward", "backward"]:
+            print("Invalid direction")
+            return
+            
+        step_change = steps if Dir == "forward" else -steps
+        self.current_position += step_change
+        print(f"Mock stepper moved {steps} steps {Dir}. Current position: {self.current_position}")
+        # Simulate the time it would take
+        time.sleep(steps * stepdelay * 2)

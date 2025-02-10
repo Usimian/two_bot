@@ -8,78 +8,11 @@ import random
 import time
 import json
 import threading
-
 import qwiic_icm20948  # IMU
 import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
 from server import PiServer
-from mock_devices import MockIMU, MockADC, MockAnalogIn, MockOLED, MockI2C
-
-# Mock GPIO for no hardware conditions
-class MockGPIO:
-    BCM = "BCM"
-    OUT = "OUT"
-    
-    @staticmethod
-    def setmode(mode):
-        pass
-        
-    @staticmethod
-    def setwarnings(flag):
-        pass
-        
-    @staticmethod
-    def setup(pin, mode):
-        pass
-        
-    @staticmethod
-    def output(pin, value):
-        pass
-
-# Mock DRV8825 stepper driver
-class MockDRV8825:
-    def __init__(self, dir_pin, step_pin, enable_pin, mode_pins):
-        self.dir_pin = dir_pin
-        self.step_pin = step_pin
-        self.enable_pin = enable_pin
-        self.mode_pins = mode_pins
-        self.current_position = 0
-        self.is_enabled = False
-        self.direction = "forward"
-        print(f"Mock stepper initialized (pins: dir={dir_pin}, step={step_pin}, enable={enable_pin})")
-    
-    def digital_write(self, pin, value):
-        if pin == self.enable_pin:
-            self.is_enabled = bool(value)
-            if value:
-                print(f"Mock stepper enabled")
-            else:
-                print(f"Mock stepper disabled")
-        elif pin == self.dir_pin:
-            self.direction = "forward" if value == 0 else "backward"
-            print(f"Mock stepper direction: {self.direction}")
-    
-    def Stop(self):
-        self.is_enabled = False
-        print("Mock stepper stopped")
-    
-    def SetMicroStep(self, mode, stepformat):
-        print(f"Mock stepper microstepping set to: {stepformat}")
-    
-    def TurnStep(self, Dir, steps, stepdelay=0.005):
-        if not self.is_enabled:
-            print("Mock stepper is disabled")
-            return
-            
-        if Dir not in ["forward", "backward"]:
-            print("Invalid direction")
-            return
-            
-        step_change = steps if Dir == "forward" else -steps
-        self.current_position += step_change
-        print(f"Mock stepper moved {steps} steps {Dir}. Current position: {self.current_position}")
-        # Simulate the time it would take
-        time.sleep(steps * stepdelay * 2)
+from mock_devices import MockIMU, MockADC, MockAnalogIn, MockOLED, MockI2C, MockGPIO, MockDRV8825
 
 def initialize_motors():
     global Motor1, Motor2, GPIO
@@ -241,24 +174,35 @@ def read_adc_values():
         if not hasattr(myADC, 'device') or myADC.device is None:
             raise Exception("ADC not initialized")
 
-        # Force simulation if using mock ADC
+        # Use mock ADC values if using mock device
         if is_mock_device(myADC.device):
-            raise Exception("Using mock ADC")
+            # Get simulated values from MockADC
+            chan0 = AnalogIn(myADC.device, 0)  # Rp channel
+            chan1 = AnalogIn(myADC.device, 1)  # Ri channel
+            chan2 = AnalogIn(myADC.device, 2)  # Rd channel
+            chan3 = AnalogIn(myADC.device, 3)  # Battery voltage channel
+        else:
+            # Read real ADC values
+            chan0 = AnalogIn(myADC.device, ADS.P0)
+            chan1 = AnalogIn(myADC.device, ADS.P1)
+            chan2 = AnalogIn(myADC.device, ADS.P2)
+            chan3 = AnalogIn(myADC.device, ADS.P3) * battery_cal_factor
 
-        # Read ADC values
-        chan0 = AnalogIn(myADC.device, ADS.P0)
-        chan1 = AnalogIn(myADC.device, ADS.P1)
-        chan2 = AnalogIn(myADC.device, ADS.P2)
-        chan3 = AnalogIn(myADC.device, ADS.P3)
 
         Rp = chan0.voltage * 5
         Ri = chan1.voltage * 5
         Rd = chan2.voltage
-        Vb = chan3.voltage * battery_cal_factor
-
+        Vb = chan3.voltage
         return Rp, Ri, Rd, Vb
+
     except Exception as e:
-        return 0, 0, 0, get_simulated_voltage()
+        print(f"Failed to read ADC values: {e}")
+        # Return simulated values as fallback
+        Vb = get_simulated_voltage()
+        Rp = random.uniform(-5, 5)
+        Ri = random.uniform(-10, 10)
+        Rd = random.uniform(-2, 2)
+        return Rp, Ri, Rd, Vb
 
 read_adc_values()
 
