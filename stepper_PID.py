@@ -11,8 +11,35 @@ import threading
 import qwiic_icm20948  # IMU
 import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
-from server import PiServer
+from server import PiServer, MOCK_STATUS
 from mock_devices import MockIMU, MockADC, MockAnalogIn, MockOLED, MockI2C, MockGPIO, MockDRV8825
+
+# Hardware mock status flags
+# MOCK_STATUS = {
+#     'gpio': False,        # GPIO/Motors mock status
+#     'i2c': False,         # I2C bus mock status
+#     'imu': False,         # IMU sensor mock status
+#     'adc': False,         # ADC mock status
+#     'oled': False         # OLED display mock status
+# }
+
+def update_mock_status():
+    """Update the mock status flags based on actual device implementations"""
+    try:
+        import RPi.GPIO as GPIO
+        MOCK_STATUS['gpio'] = False
+    except:
+        MOCK_STATUS['gpio'] = True
+    
+    try:
+        test_i2c = busio.I2C(SCL, SDA)
+        if test_i2c.try_lock():
+            test_i2c.unlock()
+            MOCK_STATUS['i2c'] = False
+        else:
+            MOCK_STATUS['i2c'] = True
+    except:
+        MOCK_STATUS['i2c'] = True
 
 def initialize_motors():
     global Motor1, Motor2, GPIO
@@ -26,12 +53,14 @@ def initialize_motors():
         from DRV8825 import DRV8825
         Motor1 = DRV8825(dir_pin=13, step_pin=19, enable_pin=12, mode_pins=(16, 17, 20))
         Motor2 = DRV8825(dir_pin=24, step_pin=18, enable_pin=4, mode_pins=(21, 22, 27))
+        MOCK_STATUS['gpio'] = False
     except Exception as e:
         print(f"GPIO initialization failed: {e}")
         print("Using mock stepper motors")
         GPIO = MockGPIO
         Motor1 = MockDRV8825(dir_pin=13, step_pin=19, enable_pin=12, mode_pins=(16, 17, 20))
         Motor2 = MockDRV8825(dir_pin=24, step_pin=18, enable_pin=4, mode_pins=(21, 22, 27))
+        MOCK_STATUS['gpio'] = True
 
 # Initialize motors
 initialize_motors()
@@ -70,24 +99,32 @@ def initialize_i2c_devices():
         i2c.unlock()
         
         print("I2C hardware detected, using real devices")
+        MOCK_STATUS['i2c'] = False
+        
         try:
             myADC = I2CDevice(ADS.ADS1015(i2c), "ADC")
+            MOCK_STATUS['adc'] = False
         except Exception as e:
             print(f"ADC initialization failed: {e}, using mock ADC")
             myADC = I2CDevice(MockADC(), "MockADC")
             AnalogIn = MockAnalogIn
+            MOCK_STATUS['adc'] = True
             
         try:
             myIMU = I2CDevice(qwiic_icm20948.QwiicIcm20948(address=0x68), "IMU")
+            MOCK_STATUS['imu'] = False
         except Exception as e:
             print(f"IMU initialization failed: {e}, using mock IMU")
             myIMU = I2CDevice(MockIMU(), "MockIMU")
+            MOCK_STATUS['imu'] = True
             
         try:
             oled = I2CDevice(PioLED(), "OLED")
+            MOCK_STATUS['oled'] = False
         except Exception as e:
             print(f"OLED initialization failed: {e}, using mock OLED")
             oled = I2CDevice(MockOLED(), "MockOLED")
+            MOCK_STATUS['oled'] = True
             
     except Exception as e:
         print(f"No I2C hardware detected: {e}")
@@ -97,6 +134,10 @@ def initialize_i2c_devices():
         myIMU = I2CDevice(MockIMU(), "MockIMU")
         oled = I2CDevice(MockOLED(), "MockOLED")
         AnalogIn = MockAnalogIn
+        MOCK_STATUS['i2c'] = True
+        MOCK_STATUS['adc'] = True
+        MOCK_STATUS['imu'] = True
+        MOCK_STATUS['oled'] = True
 
 # Initialize devices
 initialize_i2c_devices()
@@ -260,8 +301,8 @@ def initialize_system():
         oled.execute(lambda: oled.device.draw_rectangle(0, 25, Vb * 90 / 17.2, 6, fill=True))
         oled.execute(lambda: oled.device.display_text(f"{Vb:.2f} ", 92, 23))
         oled.execute(lambda: oled.device.display_text(f"{Rp:.2f} {Ri:.2f} {Rd:.2f} {Vb:.2f}", 0, -1))
-        oled.execute(lambda: oled.device.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.1f}", 0, 7))
-        oled.execute(lambda: oled.device.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.1f}", 0, 15))
+        oled.execute(lambda: oled.device.display_text(f"{pid.Kp:>5.1f}{pid.Ki:>5.1f}{pid.Kd:>5.2f}", 0, 7))
+        oled.execute(lambda: oled.device.display_text(f"{pid_pos.Kp:>5.1f}{pid_pos.Ki:>5.1f}{pid_pos.Kd:>5.2f}", 0, 15))
 
         print(f"Rp:  {Rp:>5.2f}\tRi:  {Ri:>5.2f}\tRd:  {Rd:>5.2f}\tBattery: {Vb:>5.2f}")
         print(f"Kp:  {pid.Kp:>5.2f}\tKi:  {pid.Ki:>5.2f}\tKd:  {pid.Kd:>5.2f}")

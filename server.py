@@ -3,6 +3,15 @@ import json
 import threading
 import time
 
+# Hardware mock status flags
+MOCK_STATUS = {
+    'gpio': False,        # GPIO/Motors mock status
+    'i2c': False,         # I2C bus mock status
+    'imu': False,         # IMU sensor mock status
+    'adc': False,         # ADC mock status
+    'oled': False         # OLED display mock status
+}
+
 MQTT_BROKER = "localhost"  # MQTT broker address
 MQTT_PORT = 1883  # Default MQTT port
 TOPIC_CONTROL = "two_bot/control_request"  # Topic for receiving control commands
@@ -54,7 +63,8 @@ class PiServer:
                     "Vb": float(f"{self.Vb:.2f}"),
                     "Rp": float(f"{self.Rp:.2f}"),
                     "Ri": float(f"{self.Ri:.2f}"),
-                    "Rd": float(f"{self.Rd:.2f}")
+                    "Rd": float(f"{self.Rd:.2f}"),
+                    "mock_status": MOCK_STATUS  # Include mock status in response
                 }
                 self.client.publish(TOPIC_RESPONSE, json.dumps(response))
                 print(f"Published status response: {response}")
